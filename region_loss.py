@@ -9,11 +9,10 @@ import numpy as np
 
 from utils import *
 
-
 def build_targets(pred_boxes,pred_conf, pred_cls, target, anchors, num_anchors, num_classes, nH, nW, ignore_thres):
-    nB = target.size(0)
+    nB = target.size(0) 
     nA = num_anchors   #5
-    nC = num_classes   #8
+    nC = num_classes   #5
     mask = torch.zeros(nB,nA,nH,nW)
     conf_mask  = torch.ones(nB, nA, nH, nW)
     tx         = torch.zeros(nB, nA, nH, nW)
@@ -81,7 +80,6 @@ def build_targets(pred_boxes,pred_conf, pred_cls, target, anchors, num_anchors, 
 
     return nGT, nCorrect, mask, conf_mask, tx, ty, tw, tl, tconf, tcls
 
-
 class RegionLoss(nn.Module):
     def __init__(self, num_classes=8, num_anchors=5):
         super(RegionLoss, self).__init__()
@@ -89,7 +87,7 @@ class RegionLoss(nn.Module):
         self.anchors = anchors
         self.num_anchors = num_anchors
         self.num_classes = num_classes
-        self.bbox_attrs = 7+num_classes
+        self.bbox_attrs = 10+num_classes # TODO: Why does this need to be 15?
         self.ignore_thres = 0.6
         self.lambda_coord = 1
 
@@ -117,6 +115,7 @@ class RegionLoss(nn.Module):
         prediction = x.view(nB, nA, self.bbox_attrs, nH, nW).permute(0, 1, 3, 4, 2).contiguous()  # prediction [12,5,16,32,15]
 
         # Get outputs
+        # TODO: Where is height?
         x = torch.sigmoid(prediction[..., 0])  # Center x
         y = torch.sigmoid(prediction[..., 1])  # Center y
         w = prediction[..., 2]  # Width
@@ -157,10 +156,18 @@ class RegionLoss(nn.Module):
             nW=nW,
             ignore_thres=self.ignore_thres
         )
-
+        # print(f"x: {x.shape}")
+        # print(f"prediction: {prediction.shape}")
+        # print(f"targets: {targets.shape}")
+        # print(f"pred_boxes: {pred_boxes.shape}")
+        # print(f"pred_conf: {pred_conf.shape}")
+        # print(f"nProposals: {int((pred_conf > 0.5).sum().item())}")
+        # print(f"nCorrect: {nCorrect}")
+        # print(f"nGT: {nGT}")
         nProposals = int((pred_conf > 0.5).sum().item())
         recall = float(nCorrect / nGT) if nGT else 1
-        precision = float(nCorrect / nProposals)
+        precision = float(nCorrect / nProposals) # TODO: Why can precision be greater than 1? How can nProposals can be lower than nCorrect?
+        
 
         # Handle masks
         mask = Variable(mask.type(ByteTensor))
@@ -175,8 +182,10 @@ class RegionLoss(nn.Module):
         tcls = Variable(tcls.type(LongTensor), requires_grad=False)
 
         # Get conf mask where gt and where there is no gt
-        conf_mask_true = mask
-        conf_mask_false = conf_mask - mask
+        conf_mask_true = mask.bool()
+        conf_mask_false = (conf_mask - mask).bool()
+        mask = mask.bool()
+        conf_mask = conf_mask.bool()
 
         # Mask outputs to ignore non-existing objects
         loss_x = self.mse_loss(x[mask], tx[mask])
@@ -189,8 +198,22 @@ class RegionLoss(nn.Module):
         loss_cls = (1 / nB) * self.ce_loss(pred_cls[mask], torch.argmax(tcls[mask], 1))
         loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
 
-        print('nGT %d, recall %f, precision %f, proposals %d, loss: x %f, y %f, w %f, h %f, conf %f, cls %f, total %f' % \
-                 (nGT, recall,  precision,  nProposals, loss_x.data, loss_y.data, loss_w.data, loss_h.data, loss_conf.data, loss_cls.data,loss.data))
+        # print('nGT %d, recall %f, precision %f, proposals %d, nCorrect %d, loss: x %f, y %f, w %f, h %f, conf %f, cls %f, total %f' % \
+        #          (nGT, recall,  precision,  nProposals, nCorrect, loss_x.data, loss_y.data, loss_w.data, loss_h.data, loss_conf.data, loss_cls.data,loss.data))
+        metrics = {
+            'nGT': nGT,
+            'recall': recall,
+            'precision': precision,
+            'nProposals': nProposals,
+            'nCorrect': nCorrect,
+            'loss_x': loss_x.data,
+            'loss_y': loss_y.data,
+            'loss_w': loss_w.data,
+            'loss_h': loss_h.data,
+            'loss_conf': loss_conf.data,
+            'loss_cls': loss_cls.data,
+            'loss': loss.data 
+        }
 
-        return loss
+        return loss, metrics
 
