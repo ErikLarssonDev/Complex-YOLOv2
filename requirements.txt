@@ -1,0 +1,13 @@
+torch==1.5.0
+torchvision==0.6.0
+easydict==1.9
+opencv-python==4.2.0.34
+numpy==1.22.0
+torchsummary==1.5.1
+tensorboard==2.2.1
+scikit-learn==0.22.2
+mayavi
+tqdm
+protobuf==3.20.0
+shapely
+numba==0.53.0

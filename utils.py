@@ -6,15 +6,10 @@ import numpy as np
 import cv2
 import math
 
-
 # classes
-class_list = ['Car', 'Van' , 'Truck' , 'Pedestrian' , 'Person_sitting' , 'Cyclist' , 'Tram' ]
-
-
-bc={}
-bc['minX'] = 0; bc['maxX'] = 80; bc['minY'] = -40; bc['maxY'] = 40
-bc['minZ'] =-2; bc['maxZ'] = 1.25
-
+# class_list = ['Car', 'Van' , 'Truck' , 'Pedestrian' , 'Person_sitting' , 'Cyclist' , 'Tram' ]
+class_list = ['Vehicle', 'VulnerableVehicle', 'Pedestrian', 'Animal', 'StaticObject'] # TODO: Move from this file
+anchors = [[1.08,1.19], [3.42,4.41], [6.63,11.38], [9.42,5.11], [16.62,10.52]]
 
 def removePoints(PointCloud, BoundaryCond):
     
@@ -221,12 +216,6 @@ def load_kitti_calib(calib_file):
             'R0': R0.reshape(3, 3),
             'Tr_velo2cam': Tr_velo_to_cam.reshape(3, 4)}
 
-
-
-
-
-
-anchors = [[1.08,1.19], [3.42,4.41], [6.63,11.38], [9.42,5.11], [16.62,10.52]]
 
 
 # def bbox_iou(box1, box2, x1y1x2y2=True):
