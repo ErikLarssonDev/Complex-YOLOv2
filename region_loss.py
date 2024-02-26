@@ -175,8 +175,10 @@ class RegionLoss(nn.Module):
         tcls = Variable(tcls.type(LongTensor), requires_grad=False)
 
         # Get conf mask where gt and where there is no gt
-        conf_mask_true = mask
-        conf_mask_false = conf_mask - mask
+        conf_mask_true = mask.bool()
+        conf_mask_false = (conf_mask - mask).bool()
+        mask = mask.bool()
+        conf_mask = conf_mask.bool()
 
         # Mask outputs to ignore non-existing objects
         loss_x = self.mse_loss(x[mask], tx[mask])
@@ -186,11 +188,32 @@ class RegionLoss(nn.Module):
         loss_conf = self.bce_loss(pred_conf[conf_mask_false], tconf[conf_mask_false]) + self.bce_loss(
             pred_conf[conf_mask_true], tconf[conf_mask_true]
         )
-        loss_cls = (1 / nB) * self.ce_loss(pred_cls[mask], torch.argmax(tcls[mask], 1))
+        # TODO: this is just to make it run for now, something is wrong!
+        if len(tcls[mask]) == 0:
+            # print("ERROR: tcls[mask] is empty")
+            loss_cls = 0
+        else:
+            loss_cls = (1 / nB) * self.ce_loss(pred_cls[mask], torch.argmax(tcls[mask], 1))
+
         loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
 
-        print('nGT %d, recall %f, precision %f, proposals %d, loss: x %f, y %f, w %f, h %f, conf %f, cls %f, total %f' % \
-                 (nGT, recall,  precision,  nProposals, loss_x.data, loss_y.data, loss_w.data, loss_h.data, loss_conf.data, loss_cls.data,loss.data))
+        # print('nGT %d, recall %f, precision %f, proposals %d, loss: x %f, y %f, w %f, h %f, conf %f, cls %f, total %f' % \
+        #          (nGT, recall,  precision,  nProposals, loss_x, loss_y, loss_w, loss_h, loss_conf, loss_cls,loss))
+        # Unclear why .data does not work here any more
+        metrics = {
+            'nGT': nGT,
+            'recall': recall,
+            'precision': precision,
+            'nProposals': nProposals,
+            'nCorrect': nCorrect,
+            'loss_x': loss_x,
+            'loss_y': loss_y,
+            'loss_w': loss_w,
+            'loss_h': loss_h,
+            'loss_conf': loss_conf,
+            'loss_cls': loss_cls,
+            'loss': loss 
+        }
 
-        return loss
+        return loss, metrics
 
