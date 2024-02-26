@@ -21,7 +21,7 @@ class KittiDataset(torch.utils.data.Dataset):
         self.calib_path = os.path.join(self.data_path, "calib/")
         self.label_path = os.path.join(self.data_path, "label_2/")
 
-        with open(os.path.join(self.data_path, '%s.txt' % set)) as f:
+        with open(os.path.join(root, 'ImageSets', '%s.txt' % set)) as f:
             self.file_list = f.read().splitlines()
 
 
@@ -49,8 +49,9 @@ class KittiDataset(torch.utils.data.Dataset):
             b = removePoints(a,bc)
 
             data = makeBVFeature(b, bc ,40/512)   # (512, 1024, 3)
-
-            return data , target
+            # print(data.shape)
+            # print(target.shape)
+            return data , target # (512, 1024, 3) , (50, 7)
 
         elif self.type == 'velodyne_test':
             NotImplemented
