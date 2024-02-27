@@ -9,10 +9,28 @@ from tqdm import tqdm
 from complexYOLO import ComplexYOLO
 from kitti import KittiDataset
 from zod import ZOD_Dataset
-from zod import class_list, bc
 from region_loss import RegionLoss
 
+import config as cnf
+
+bc = cnf.boundary
+
 batch_size=1 # TODO: Check if we can get 2 to work
+
+# def collate_fn(batch):
+#        imgs, targets = list(zip(*batch))
+#        # Remove empty placeholder targets
+#        # targets = [boxes for boxes in targets if boxes is not None]
+#        # TODO: Do we need to add sample index to targets?
+#        # Add sample index to targets
+#        # for i, boxes in enumerate(targets):
+#        #        boxes[:, 0] = i
+#        targets = torch.cat(targets, 0)
+#        imgs = torch.stack(imgs, 0)
+
+#        print(f"targets: {targets.shape}")
+#        print(f"imgs: {imgs.shape}")
+#        return imgs, targets.unsqueeze(0)
 
 # dataset
 dataset=ZOD_Dataset(root='./minzod_mmdet3d',set='train')
@@ -47,8 +65,9 @@ for epoch in tqdm(range(30000)):
        for batch_idx, (rgb_map, target) in enumerate(data_loader):
               optimizer.zero_grad()
 
-              rgb_map = rgb_map.view(rgb_map.data.size(0),rgb_map.data.size(3),rgb_map.data.size(1),rgb_map.data.size(2))
+              # rgb_map = rgb_map.view(rgb_map.data.size(0),rgb_map.data.size(3),rgb_map.data.size(1),rgb_map.data.size(2))
               inference_time = time.time()
+              print(f"rgb_map: {rgb_map.shape}")
               output = model(rgb_map.float().cuda())
               # print(f"inference_time: {time.time() - inference_time}")
               # print(f"output: {output.shape}")
@@ -72,4 +91,6 @@ for epoch in tqdm(range(30000)):
               total_metrics["nProposals"],
               total_metrics["nCorrect"]))
        if epoch % 10 == 0:
-              torch.save(model, "ComplexYOLO_latest")
+              torch.save(model, "ComplexYOLO_latest.pt")
+torch.save(model, f"ComplexYOLO_epoch{epoch}.pt")
+

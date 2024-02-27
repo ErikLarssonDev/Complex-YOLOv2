@@ -9,8 +9,10 @@ venv/
 *.so
 *.sh
 *.pth
+*.pt
 *.pkl
 *.zip
 *.bin
 output
 version.py
+nohup.out
