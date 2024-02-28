@@ -66,6 +66,8 @@ def build_targets(pred_boxes,pred_conf, pred_cls, target, anchors, num_anchors, 
             # Width and height
             tw[b, best_n, gj, gi] = math.log(gw / anchors[best_n][0] + 1e-16)
             tl[b, best_n, gj, gi] = math.log(gl / anchors[best_n][1] + 1e-16)
+
+            # TODO: Angle
             # One-hot encoding of label
             target_label = int(target[b, t, 0])
             tcls[b, best_n, gj, gi, target_label] = 1
@@ -136,6 +138,8 @@ class RegionLoss(nn.Module):
         pred_boxes[..., 1] = y.data + grid_y
         pred_boxes[..., 2] = torch.exp(w.data) * anchor_w
         pred_boxes[..., 3] = torch.exp(h.data) * anchor_h
+        pred_boxes[..., 4] = prediction[..., 4]
+        pred_boxes[..., 5] = prediction[..., 5]
 
 
 
@@ -144,7 +148,7 @@ class RegionLoss(nn.Module):
             self.bce_loss = self.bce_loss.cuda()
             self.ce_loss = self.ce_loss.cuda()
 
-        nGT, nCorrect, mask, conf_mask, tx, ty, tw, th, tconf, tcls = build_targets(
+        nGT, nCorrect, mask, conf_mask, tx, ty, tw, th, tim, tre, tconf, tcls = build_targets(
             pred_boxes=pred_boxes.cpu().data,
             pred_conf=pred_conf.cpu().data,
             pred_cls=pred_cls.cpu().data,
@@ -178,6 +182,8 @@ class RegionLoss(nn.Module):
         ty = Variable(ty.type(FloatTensor), requires_grad=False)
         tw = Variable(tw.type(FloatTensor), requires_grad=False)
         th = Variable(th.type(FloatTensor), requires_grad=False)
+        tim = Variable(tim.type(FloatTensor), requires_grad=False)
+        tre = Variable(tre.type(FloatTensor), requires_grad=False)
         tconf = Variable(tconf.type(FloatTensor), requires_grad=False)
         tcls = Variable(tcls.type(LongTensor), requires_grad=False)
 

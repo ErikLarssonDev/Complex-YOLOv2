@@ -50,4 +50,6 @@ BEV_HEIGHT = 512 # Original: 512 Y [-40, 40] --> 320
 DISCRETIZATION_X = (boundary["maxX"] - boundary["minX"]) / BEV_HEIGHT 
 DISCRETIZATION_Y = (boundary["maxY"] - boundary["minY"]) / BEV_WIDTH 
 
+# TODO: Maybe add the aspect ratio factors in the config file
+
 colors = [[0, 255, 255], [0, 0, 255], [255, 0, 0], [0, 255, 0], [255, 255, 255]]
