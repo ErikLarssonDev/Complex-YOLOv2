@@ -10,6 +10,7 @@ import config as cnf
 
 bc = cnf.boundary
 
+# TODO: Rebuild this dataset but with the ZOD dataset format
 class ZOD_Dataset(torch.utils.data.Dataset):
 
     def __init__(self, root='/minzod_mmdet3d',set='train',type='velodyne_train'):

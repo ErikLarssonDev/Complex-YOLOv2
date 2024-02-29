@@ -44,7 +44,7 @@ optimizer = optim.Adam(model.parameters())
 # define loss function
 region_loss = RegionLoss(num_classes=5, num_anchors=5)
 
-for epoch in tqdm(range(30000)):
+for epoch in tqdm(range(1000)):
        total_loss = 0
        total_metrics = {
             'nGT': 0,
@@ -89,6 +89,6 @@ for epoch in tqdm(range(30000)):
               total_metrics["nProposals"],
               total_metrics["nCorrect"]))
        if epoch % 10 == 0:
-              torch.save(model, "ComplexYOLO_latest.pt")
-torch.save(model, f"ComplexYOLO_epoch{epoch+1}.pt")
+              torch.save(model, "ComplexYOLO_latest_euler_nC5.pt")
+torch.save(model, f"ComplexYOLO_epoch{epoch+1}_euler_nC5.pt")
 
