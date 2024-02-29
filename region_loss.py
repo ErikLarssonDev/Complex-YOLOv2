@@ -19,15 +19,15 @@ def build_targets(pred_boxes,pred_conf, pred_cls, target, anchors, num_anchors, 
     ty         = torch.zeros(nB, nA, nH, nW) 
     tw         = torch.zeros(nB, nA, nH, nW) 
     tl         = torch.zeros(nB, nA, nH, nW)
-    tim        = torch.zeros(nB, nA, nH, nW)
-    tre        = torch.zeros(nB, nA, nH, nW)
+    tim         = torch.zeros(nB, nA, nH, nW)
+    tre         = torch.zeros(nB, nA, nH, nW)
     tconf      = torch.ByteTensor(nB, nA, nH, nW).fill_(0)
     tcls       = torch.ByteTensor(nB, nA, nH, nW , nC).fill_(0)
 
     nGT = 0
     nCorrect = 0
-    for b in range(nB):
-        for t in range(target.shape[1]):
+    for b in range(nB): # for each batch
+        for t in range(target.shape[1]): # for each ground truth box TODO: Will not work with multiple batches with different number of ground truth boxes
             if target[b][t].sum() == 0:
                 continue
 
@@ -37,8 +37,8 @@ def build_targets(pred_boxes,pred_conf, pred_cls, target, anchors, num_anchors, 
             gy = target[b, t, 2] * nH
             gw = target[b, t, 3] * nW
             gl = target[b, t, 4] * nH
-            #gim = target[b][t][5]
-            #gre = target[b][t][6]
+            gim = target[b, t, 5]
+            gre = target[b, t, 6]
 
             # Get grid box indices
             gi = int(gx)
@@ -66,6 +66,9 @@ def build_targets(pred_boxes,pred_conf, pred_cls, target, anchors, num_anchors, 
             # Width and height
             tw[b, best_n, gj, gi] = math.log(gw / anchors[best_n][0] + 1e-16)
             tl[b, best_n, gj, gi] = math.log(gl / anchors[best_n][1] + 1e-16)
+            # Angles
+            tim[b, best_n, gj, gi] = gim
+            tre[b, best_n, gj, gi] = gre
             # One-hot encoding of label
             target_label = int(target[b, t, 0])
             tcls[b, best_n, gj, gi, target_label] = 1
@@ -76,9 +79,10 @@ def build_targets(pred_boxes,pred_conf, pred_cls, target, anchors, num_anchors, 
             pred_label = torch.argmax(pred_cls[b, best_n, gj, gi])
             score = pred_conf[b, best_n, gj, gi]
             if iou > 0.5 and pred_label == target_label and score > 0.5:
-                nCorrect += 1
+                nCorrect += 1 # How can this be higher than nProposals?
+                # nProposals = int((pred_conf > 0.5).sum().item())
 
-    return nGT, nCorrect, mask, conf_mask, tx, ty, tw, tl, tconf, tcls
+    return nGT, nCorrect, mask, conf_mask, tx, ty, tw, tl, tim, tre, tconf, tcls
 
 class RegionLoss(nn.Module):
     def __init__(self, num_classes=8, num_anchors=5):
@@ -87,7 +91,7 @@ class RegionLoss(nn.Module):
         self.anchors = anchors
         self.num_anchors = num_anchors
         self.num_classes = num_classes
-        self.bbox_attrs = 10+num_classes # TODO: Why does this need to be 15?
+        self.bbox_attrs = 7+num_classes # 7 is the dim needed for the bbox attributes
         self.ignore_thres = 0.6
         self.lambda_coord = 1
 
@@ -112,7 +116,7 @@ class RegionLoss(nn.Module):
         LongTensor = torch.cuda.LongTensor if x.is_cuda else torch.LongTensor
         ByteTensor = torch.cuda.ByteTensor if x.is_cuda else torch.ByteTensor
 
-        prediction = x.view(nB, nA, self.bbox_attrs, nH, nW).permute(0, 1, 3, 4, 2).contiguous()  # prediction [12,5,16,32,15]
+        prediction = x.view(nB, nA, self.bbox_attrs, nH, nW).permute(0, 1, 3, 4, 2).contiguous()  # prediction [12,5,16,32,12]
 
         # Get outputs
         # TODO: Where is height?
@@ -120,6 +124,8 @@ class RegionLoss(nn.Module):
         y = torch.sigmoid(prediction[..., 1])  # Center y
         w = prediction[..., 2]  # Width
         h = prediction[..., 3]  # Height
+        im = prediction[..., 4]  # Im
+        re = prediction[..., 5]  # Re
         pred_conf = torch.sigmoid(prediction[..., 6])  # Conf
         pred_cls = torch.sigmoid(prediction[..., 7:])  # Cls pred.
 
@@ -131,11 +137,13 @@ class RegionLoss(nn.Module):
         anchor_h = scaled_anchors[:, 1:2].view((1, nA, 1, 1))
 
         # Add offset and scale with anchors
-        pred_boxes = FloatTensor(prediction[..., :4].shape)
+        pred_boxes = FloatTensor(prediction[..., :6].shape)
         pred_boxes[..., 0] = x.data + grid_x
         pred_boxes[..., 1] = y.data + grid_y
         pred_boxes[..., 2] = torch.exp(w.data) * anchor_w
         pred_boxes[..., 3] = torch.exp(h.data) * anchor_h
+        pred_boxes[..., 4] = prediction[..., 4]
+        pred_boxes[..., 5] = prediction[..., 5]
 
 
 
@@ -144,7 +152,7 @@ class RegionLoss(nn.Module):
             self.bce_loss = self.bce_loss.cuda()
             self.ce_loss = self.ce_loss.cuda()
 
-        nGT, nCorrect, mask, conf_mask, tx, ty, tw, th, tconf, tcls = build_targets(
+        nGT, nCorrect, mask, conf_mask, tx, ty, tw, th, tim, tre, tconf, tcls = build_targets(
             pred_boxes=pred_boxes.cpu().data,
             pred_conf=pred_conf.cpu().data,
             pred_cls=pred_cls.cpu().data,
@@ -162,6 +170,7 @@ class RegionLoss(nn.Module):
         # print(f"pred_boxes: {pred_boxes.shape}")
         # print(f"pred_conf: {pred_conf.shape}")
         # print(f"nProposals: {int((pred_conf > 0.5).sum().item())}")
+        # print(f"pred_conf: {pred_conf.shape}")
         # print(f"nCorrect: {nCorrect}")
         # print(f"nGT: {nGT}")
         nProposals = int((pred_conf > 0.5).sum().item())
@@ -178,6 +187,8 @@ class RegionLoss(nn.Module):
         ty = Variable(ty.type(FloatTensor), requires_grad=False)
         tw = Variable(tw.type(FloatTensor), requires_grad=False)
         th = Variable(th.type(FloatTensor), requires_grad=False)
+        tim = Variable(tim.type(FloatTensor), requires_grad=False)
+        tre = Variable(tre.type(FloatTensor), requires_grad=False)
         tconf = Variable(tconf.type(FloatTensor), requires_grad=False)
         tcls = Variable(tcls.type(LongTensor), requires_grad=False)
 
@@ -192,17 +203,14 @@ class RegionLoss(nn.Module):
         loss_y = self.mse_loss(y[mask], ty[mask])
         loss_w = self.mse_loss(w[mask], tw[mask])
         loss_h = self.mse_loss(h[mask], th[mask])
+        loss_im = self.mse_loss(im[mask], tim[mask])
+        loss_re = self.mse_loss(re[mask], tre[mask])
+        loss_Euler = loss_im + loss_re
         loss_conf = self.bce_loss(pred_conf[conf_mask_false], tconf[conf_mask_false]) + self.bce_loss(
             pred_conf[conf_mask_true], tconf[conf_mask_true]
         )
-        # TODO: this is just to make it run for now, something is wrong!
-        if len(tcls[mask]) == 0:
-            # print("ERROR: tcls[mask] is empty")
-            loss_cls = 0
-        else:
-            loss_cls = (1 / nB) * self.ce_loss(pred_cls[mask], torch.argmax(tcls[mask], 1))
-
-        loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
+        loss_cls = (1 / nB) * self.ce_loss(pred_cls[mask], torch.argmax(tcls[mask], 1))
+        loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls + loss_Euler
 
         # print('nGT %d, recall %f, precision %f, proposals %d, loss: x %f, y %f, w %f, h %f, conf %f, cls %f, total %f' % \
         #          (nGT, recall,  precision,  nProposals, loss_x, loss_y, loss_w, loss_h, loss_conf, loss_cls,loss))

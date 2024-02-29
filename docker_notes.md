@@ -56,7 +56,7 @@ docker build -t yolov2-image-2 .
 then create a container with the built image, like
 
 ```shell
-docker run -it   --gpus 'all'   -v "${PWD}:/workspace"    -v "/home/student/minzod_mmdet3d:/workspace/minzod_mmdet3d" --name "yolov2-container-2" --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw"  yolov2-image-2
+docker run -it   --gpus 'all'   -v "${PWD}:/workspace"    -v "/media/storage:/workspace/dataset" -v "/home/student/minzod_mmdet3d:/workspace/minzod_mmdet3d" -v "/home/student/minizod:/workspace/minizod" --name "yolov2-container" --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw"  yolov2-image
 ```
 or
 ```shell
@@ -69,7 +69,7 @@ also make sure to run ´sudo xhost +´ on the host machine and that the $DISPLAY
 when container is build run 
 ```shell
 apt-get update -y
-apt-get install libglib2.0-0 # 8 49
+apt-get install libglib2.0-0 -y # 8 49
 apt-get install libsm6 libxrender1 libfontconfig1
 pip install --no-cache-dir -r requirements.txt
 ```

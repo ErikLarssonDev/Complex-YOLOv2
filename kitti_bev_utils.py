@@ -71,9 +71,9 @@ def makeBVFeature(PointCloud_, Discretization_X, Discretization_Y, bc):
 
     intensityMap[np.int_(PointCloud_top[:, 0]), np.int_(PointCloud_top[:, 1])] = PointCloud_top[:, 3]
     densityMap[np.int_(PointCloud_top[:, 0]), np.int_(PointCloud_top[:, 1])] = normalizedCounts
-    print(f"heightMap: {heightMap.shape}")
-    print(f"intensityMap: {intensityMap.shape}")
-    print(f"densityMap: {densityMap.shape}")
+    # print(f"heightMap: {heightMap.shape}")
+    # print(f"intensityMap: {intensityMap.shape}")
+    # print(f"densityMap: {densityMap.shape}")
     RGB_Map = np.zeros((3, Height - 1, Width - 1))
     RGB_Map[2, :, :] = densityMap[:cnf.BEV_HEIGHT, :cnf.BEV_WIDTH]  # r_map
     RGB_Map[1, :, :] = heightMap[:cnf.BEV_HEIGHT, :cnf.BEV_WIDTH]  # g_map
@@ -184,15 +184,15 @@ def inverse_yolo_target(targets, bc):
 
 
 # send parameters in bev image coordinates format
-def drawRotatedBox(img, x, y, w, l, yaw, color):
+def drawRotatedBox(img, x, y, w, l, yaw, color, size=1, forward_color=(255, 255, 0)):
     bev_corners = get_corners(x, y, w, l, yaw)
     corners_int = bev_corners.reshape(-1, 1, 2).astype(int)
-    cv2.polylines(img, [corners_int], True, color, 1)
+    cv2.polylines(img, [corners_int], True, color, size)
     corners_int = bev_corners.reshape(-1, 2)
     cv2.line(img,
              (int(corners_int[0, 0]), int(corners_int[0, 1])),
              (int(corners_int[3, 0]), int(corners_int[3, 1])),
-             (255, 255, 0), 1)
+             forward_color, size)
 
 
 def draw_box_in_bev(rgb_map, target):

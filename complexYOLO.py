@@ -3,6 +3,8 @@ import torch.nn.functional as F
 import torch
 from torch.autograd import Variable
 
+NUM_CLASSES = 5
+NUM_ANCHORS = 5
 
 def reorg(x):
     stride = 2
@@ -71,7 +73,7 @@ class ComplexYOLO(nn.Module):
 
         self.conv_17 = nn.Conv2d(in_channels=2048,out_channels=1024,kernel_size=3,stride=1,padding=1)
         self.bn_17   = nn.BatchNorm2d(num_features=1024)
-        self.conv_18 = nn.Conv2d(in_channels=1024,out_channels=75,kernel_size=1,stride=1,padding=0)
+        self.conv_18 = nn.Conv2d(in_channels=1024,out_channels=((NUM_CLASSES+7)*NUM_ANCHORS),kernel_size=1,stride=1,padding=0)
 
         self.relu = nn.ReLU(inplace=True)
 
@@ -110,4 +112,5 @@ class ComplexYOLO(nn.Module):
         x = self.relu(self.bn_17(self.conv_17(x)))
         x = self.conv_18(x)
 
-        return x
+        return x # b, 75, 16, 32
+

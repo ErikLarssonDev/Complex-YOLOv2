@@ -10,6 +10,7 @@ import config as cnf
 
 bc = cnf.boundary
 
+# TODO: Rebuild this dataset but with the ZOD dataset format
 class ZOD_Dataset(torch.utils.data.Dataset):
 
     def __init__(self, root='/minzod_mmdet3d',set='train',type='velodyne_train'):
@@ -83,12 +84,8 @@ if __name__ == '__main__':
         targets[:, 5] = torch.atan2(targets[:, 5], targets[:, 6])
         img_bev = rgb_map.squeeze() * 255
         img_bev = img_bev.permute(1, 2, 0).numpy().astype(np.uint8)
-        print(img_bev.shape)
         img_bev = cv2.resize(img_bev, (cnf.BEV_WIDTH, cnf.BEV_HEIGHT)) # TODO: Resize but maintain aspect ratio
-        print(img_bev.shape)
 
-        print(batch_idx)
-        print(targets.shape)
         for c, x, y, w, l, yaw in targets[:, 0:6].numpy(): # targets = [cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))]
             # Draw rotated box
             drawRotatedBox(img_bev, x, y, w, l, yaw, cnf.colors[int(c)])
