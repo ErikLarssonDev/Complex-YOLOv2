@@ -6,17 +6,37 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data as data
 import numpy as np
+from tqdm import tqdm
 
 from complexYOLO import ComplexYOLO
 from kitti import KittiDataset
+from zod import ZOD_Dataset
 from region_loss import RegionLoss
 
+import config as cnf
 
-batch_size=8
+bc = cnf.boundary
+
+batch_size=1 # TODO: Check if we can get 2 to work
+
+# def collate_fn(batch):
+#        imgs, targets = list(zip(*batch))
+#        # Remove empty placeholder targets
+#        # targets = [boxes for boxes in targets if boxes is not None]
+#        # TODO: Do we need to add sample index to targets?
+#        # Add sample index to targets
+#        # for i, boxes in enumerate(targets):
+#        #        boxes[:, 0] = i
+#        targets = torch.cat(targets, 0)
+#        imgs = torch.stack(imgs, 0)
+
+#        print(f"targets: {targets.shape}")
+#        print(f"imgs: {imgs.shape}")
+#        return imgs, targets.unsqueeze(0)
 
 # dataset
-dataset=KittiDataset(root='KITTI',set='train')
-data_loader = data.DataLoader(dataset, batch_size, shuffle=True, pin_memory=True)
+dataset=ZOD_Dataset(root='./minzod_mmdet3d',set='train')
+data_loader = data.DataLoader(dataset, batch_size, shuffle=False)
 
 model = ComplexYOLO()
 model.cuda()
@@ -25,9 +45,7 @@ model.cuda()
 optimizer = optim.Adam(model.parameters())
 
 # define loss function
-region_loss = RegionLoss(num_classes=8, num_anchors=5)
-
-
+region_loss = RegionLoss(num_classes=5, num_anchors=5)
 
 for epoch in tqdm(range(30000)):
        total_loss = 0
@@ -49,13 +67,13 @@ for epoch in tqdm(range(30000)):
        for batch_idx, (rgb_map, target) in enumerate(data_loader):
               optimizer.zero_grad()
 
-              rgb_map = rgb_map.view(rgb_map.data.size(0),rgb_map.data.size(3),rgb_map.data.size(1),rgb_map.data.size(2))
+              # rgb_map = rgb_map.view(rgb_map.data.size(0),rgb_map.data.size(3),rgb_map.data.size(1),rgb_map.data.size(2))
               inference_time = time.time()
-              print(f"rgb_map: {rgb_map.shape}") # (8, 3, 512, 1024)
+              print(f"rgb_map: {rgb_map.shape}")
               output = model(rgb_map.float().cuda())
               # print(f"inference_time: {time.time() - inference_time}")
-              print(f"output: {output.shape}") # (8, 75, 16, 32)
-              print(f"target: {target.shape}") # (8, 50, 7)
+              # print(f"output: {output.shape}")
+              # print(f"target: {target.shape}")
               loss, metrics = region_loss(output, target)
               loss.backward()
               optimizer.step()
@@ -74,5 +92,7 @@ for epoch in tqdm(range(30000)):
               total_metrics["nGT"],
               total_metrics["nProposals"],
               total_metrics["nCorrect"]))
-       # if epoch % 10 == 0:
-       #        torch.save(model, "ComplexYOLO_latest")
+       if epoch % 10 == 0:
+              torch.save(model, "ComplexYOLO_latest.pt")
+torch.save(model, f"ComplexYOLO_epoch{epoch}.pt")
+

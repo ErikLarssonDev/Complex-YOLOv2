@@ -50,17 +50,17 @@ More can find in the [doc of docker](https://docs.docker.com/build/guide/intro/)
 The default name of a dockerfile is `Dockerfile`, after creating it, run cmd like below to build a image 
 
 ```shell
-docker build -t yolov2-image .
+docker build -t yolov2-image-2 .
 ```
 
 then create a container with the built image, like
 
 ```shell
-docker run -it   --gpus 'all'   -v "${PWD}:/workspace"    -v "/home/student/minzod_mmdet3d:/workspace/minzod_mmdet3d" --name "yolo-container" --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw"  yolo-image
+docker run -it   --gpus 'all'   -v "${PWD}:/workspace"    -v "/home/student/minzod_mmdet3d:/workspace/minzod_mmdet3d" --name "yolov2-container-2" --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw"  yolov2-image-2
 ```
 or
 ```shell
-docker run -it   --gpus 'all'   -v "${PWD}:/workspace"   -v "/media/dataSsd/KITTI:/workspace/KITTI"   -v "/home/student/minzod_mmdet3d:/workspace/minzod_mmdet3d" -v "/media/dataSsd/zod:/workspace/zod"   --name "yolov2-container" --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw"  yolov2-image
+docker run -it   --gpus 'all'   -v "${PWD}:/workspace"   -v "/media/dataSsd/KITTI:/workspace/KITTI"   -v "/home/student/minzod_mmdet3d:/workspace/minzod_mmdet3d" -v "/media/dataSsd/zod:/workspace/zod"   --name "yolov2-container-2" --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw"  yolov2-image-2
 ```
 
 it might be important to add "X11Forwarding yes" to your ssh_config (found in etc/)
@@ -76,7 +76,7 @@ pip install --no-cache-dir -r requirements.txt
 
 Start container again: 
 ```shell
-docker start -i yolo-container
+docker start -i yolov2-container
 ```
 
 Remove all containers:

@@ -11,6 +11,9 @@ import cv2
 from scipy import misc
 
 from utils import *
+from zod import ZOD_Dataset
+import imageio
+
 
 
 def drawRect(img, pt1, pt2, pt3, pt4, color, lineWidth):
@@ -86,35 +89,28 @@ bc['maxY'] = 40
 bc['minZ'] = -2;
 bc['maxZ'] = 1.25
 
-for file_i in range(6030,6230):
-    test_i = str(file_i).zfill(6)
-
-    lidar_file = '/home/ai/KITTI/training/velodyne/' + test_i + '.bin'
-    calib_file = '/home/ai/KITTI/training/calib/' + test_i + '.txt'
-    label_file = '/home/ai/KITTI/training/label_2/' + test_i + '.txt'
-
-    # load target data
-    calib = load_kitti_calib(calib_file)
-    target = get_target(label_file, calib['Tr_velo2cam'])
-    # print(target)
-
-    # load point cloud data
-    a = np.fromfile(lidar_file, dtype=np.float32).reshape(-1, 4)
-    b = removePoints(a, bc)
-    rgb_map = makeBVFeature(b, bc, 40 / 512)
-    misc.imsave('eval_bv.png', rgb_map)
+dataset=ZOD_Dataset(root='./minzod_mmdet3d',set='train')
+data_loader = torch.utils.data.DataLoader(dataset, 1, shuffle=False)
+for batch_idx, (rgb_map, targets) in enumerate(data_loader):
+    rgb_map = rgb_map.squeeze(0)
+    targets = targets.squeeze(0)
+    print(batch_idx)
+    print(rgb_map.shape)
+    print(targets.shape)
+    
+    imageio.imwrite('eval_bv.png', rgb_map)
 
     # load trained model  and  forward
     input = torch.from_numpy(rgb_map)  # (512, 1024, 3)
     input = input.reshape(1, 3, 512, 1024)
-    model = torch.load('ComplexYOLO_epoch100')
+    model = torch.load('ComplexYOLO_epoch2000.pt')
     model.cuda()
     output = model(input.float().cuda())  # torch.Size([1, 75, 16, 32])
 
     # eval result
     conf_thresh = 0.7
     nms_thresh = 0.4
-    num_classes = int(8)
+    num_classes = int(5)
     num_anchors = int(5)
     img = cv2.imread('eval_bv.png')
 
@@ -145,5 +141,6 @@ for file_i in range(6030,6230):
     #     rect_bottom1 = int(img_y + img_width / 2)
     #     rect_bottom2 = int(img_x + img_height / 2)
     #     cv2.rectangle(img, (rect_top1, rect_top2), (rect_bottom1, rect_bottom2), (0, 0, 255), 1)
-
-    misc.imsave('eval_bv' + test_i + '.png', img)
+    
+    imageio.imwrite('eval_bv' + batch_idx + '.png', img)
+    break
