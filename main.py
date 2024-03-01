@@ -35,11 +35,11 @@ batch_size=1 # TODO: Check if we can get 2 to work
 #        return imgs, targets.unsqueeze(0)
 
 # dataset
-dataset=ZOD_Dataset(root='./minzod_mmdet3d',set='train')
+dataset=ZOD_Dataset(root='./zod',set='train')
 data_loader = data.DataLoader(dataset, batch_size, shuffle=False, num_workers=1) # TODO: Why error when more than 1 worker?
 
-# model = ComplexYOLO()
-model = torch.load('ComplexYOLO_1000e.pt')
+model = ComplexYOLO()
+# model = torch.load('ComplexYOLO_1000e.pt')
 model.cuda()
 # define optimizer
 optimizer = optim.Adam(model.parameters())
@@ -47,7 +47,7 @@ optimizer = optim.Adam(model.parameters())
 # define loss function
 region_loss = RegionLoss(num_classes=5, num_anchors=5)
 
-for epoch in tqdm(range(30000)):
+for epoch in tqdm(range(1)):
        total_loss = 0
        total_metrics = {
             'nGT': 0,
@@ -64,13 +64,15 @@ for epoch in tqdm(range(30000)):
             'loss': 0
         }
        start_time_epoch = time.time()        
-       for batch_idx, (rgb_map, target) in enumerate(data_loader):
+       for batch_idx, (rgb_map, target) in tqdm(enumerate(data_loader)):
               optimizer.zero_grad()
               # inference_time = time.time()
               output = model(rgb_map.float().cuda())
               # print(f"inference_time: {time.time() - inference_time}")
 
               loss, metrics = region_loss(output, target)
+              if metrics['loss_cls'] == -1:
+                     print(f"loss_cls -1 --> mask is only false at index: {batch_idx}")
               loss.backward()
               optimizer.step()
               total_loss += loss.item() 
@@ -87,6 +89,6 @@ for epoch in tqdm(range(30000)):
               total_metrics["nProposals"],
               total_metrics["nCorrect"]))
        if epoch % 10 == 0:
-              torch.save(model, "ComplexYOLO_latest.pt")
-torch.save(model, f"ComplexYOLO_{epoch+1}e.pt")
+              torch.save(model, "ComplexYOLO_latest_zod.pt")
+torch.save(model, f"ComplexYOLO_{epoch+1}e_zod.pt")
 
