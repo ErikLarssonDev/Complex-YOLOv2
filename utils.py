@@ -123,10 +123,6 @@ def get_target(label_file,Tr):
 
     return target
 
-
-
-
-
 def box3d_cam_to_velo(box3d, Tr):
 
     def project_cam2velo(cam, Tr):
@@ -174,9 +170,6 @@ def box3d_cam_to_velo(box3d, Tr):
 
     return t_lidar , box3d_corner.astype(np.float32)
 
-
-
-
 def load_kitti_calib(calib_file):
     """
     load projection matrix
@@ -203,41 +196,6 @@ def load_kitti_calib(calib_file):
     return {'P2': P2.reshape(3, 4),
             'R0': R0.reshape(3, 3),
             'Tr_velo2cam': Tr_velo_to_cam.reshape(3, 4)}
-
-
-
-# def bbox_iou(box1, box2, x1y1x2y2=True):
-#     if x1y1x2y2:
-#         mx = min(box1[0], box2[0])
-#         Mx = max(box1[2], box2[2])
-#         my = min(box1[1], box2[1])
-#         My = max(box1[3], box2[3])
-#         w1 = box1[2] - box1[0]
-#         h1 = box1[3] - box1[1]
-#         w2 = box2[2] - box2[0]
-#         h2 = box2[3] - box2[1]
-#     else:
-#         mx = min(box1[0]-box1[2]/2.0, box2[0]-box2[2]/2.0)
-#         Mx = max(box1[0]+box1[2]/2.0, box2[0]+box2[2]/2.0)
-#         my = min(box1[1]-box1[3]/2.0, box2[1]-box2[3]/2.0)
-#         My = max(box1[1]+box1[3]/2.0, box2[1]+box2[3]/2.0)
-#         w1 = box1[2]
-#         h1 = box1[3]
-#         w2 = box2[2]
-#         h2 = box2[3]
-#     uw = Mx - mx
-#     uh = My - my
-#     cw = w1 + w2 - uw
-#     ch = h1 + h2 - uh
-#     carea = 0
-#     if cw <= 0 or ch <= 0:
-#         return 0.0
-#
-#     area1 = w1 * h1
-#     area2 = w2 * h2
-#     carea = cw * ch
-#     uarea = area1 + area2 - carea
-#     return carea/uarea
 
 def bbox_iou(box1, box2, x1y1x2y2=True):
     """
@@ -271,9 +229,6 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
 
     return iou
 
-
-
-
 def bbox_ious(boxes1, boxes2, x1y1x2y2=True):
     if x1y1x2y2:
         mx = torch.min(boxes1[0], boxes2[0])
@@ -305,11 +260,6 @@ def bbox_ious(boxes1, boxes2, x1y1x2y2=True):
     uarea = area1 + area2 - carea
     return carea/uarea
 
-
-
-
-
-
 def nms(boxes, nms_thresh):
     if len(boxes) == 0:
         return boxes
@@ -327,7 +277,6 @@ def nms(boxes, nms_thresh):
             for j in range(i+1, len(boxes)):
                 box_j = boxes[sortIds[j]]
                 if bbox_iou(box_i, box_j, x1y1x2y2=False) > nms_thresh:
-                    #print(box_i, box_j, bbox_iou(box_i, box_j, x1y1x2y2=False))
                     box_j[4] = 0
     return out_boxes
 
