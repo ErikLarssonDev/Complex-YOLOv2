@@ -36,9 +36,10 @@ batch_size=1 # TODO: Check if we can get 2 to work
 
 # dataset
 dataset=ZOD_Dataset(root='./minzod_mmdet3d',set='train')
-data_loader = data.DataLoader(dataset, batch_size, shuffle=False)
+data_loader = data.DataLoader(dataset, batch_size, shuffle=False, num_workers=1) # TODO: Why error when more than 1 worker?
 
-model = ComplexYOLO()
+# model = ComplexYOLO()
+model = torch.load('ComplexYOLO_1000e.pt')
 model.cuda()
 # define optimizer
 optimizer = optim.Adam(model.parameters())
@@ -46,7 +47,7 @@ optimizer = optim.Adam(model.parameters())
 # define loss function
 region_loss = RegionLoss(num_classes=5, num_anchors=5)
 
-for epoch in tqdm(range(1000)):
+for epoch in tqdm(range(30000)):
        total_loss = 0
        total_metrics = {
             'nGT': 0,
@@ -65,22 +66,17 @@ for epoch in tqdm(range(1000)):
        start_time_epoch = time.time()        
        for batch_idx, (rgb_map, target) in enumerate(data_loader):
               optimizer.zero_grad()
-
-              # rgb_map = rgb_map.view(rgb_map.data.size(0),rgb_map.data.size(3),rgb_map.data.size(1),rgb_map.data.size(2))
-              inference_time = time.time()
+              # inference_time = time.time()
               output = model(rgb_map.float().cuda())
               # print(f"inference_time: {time.time() - inference_time}")
-              # print(f"output: {output.shape}")
-              # print(f"target: {target.shape}")
+
               loss, metrics = region_loss(output, target)
               loss.backward()
               optimizer.step()
               total_loss += loss.item() 
               for k in total_metrics.keys():
                   total_metrics[k] += metrics[k]
-       #        print("Epoch: %d, Batch: %d, Loss: %f, Time: %f" % (epoch, batch_idx, loss.item(), time.time()-start_time_batch))
-       #        # print("Epoch: %d, Batch: %d, Time: %f" % (epoch, batch_idx, time.time()-start_time_batch))
-       # print(f"metrics: {metrics["nGT"]/len(data_loader)}")
+       # TODO: Calculate metrics as in eval
        print("Epoch: %d, Time: %f, Loss: %f, Recall: %f, Precision %f, nGT %d, nProposals %d, nCorrect %d" %
              (epoch,
               time.time()-start_time_epoch,
@@ -91,6 +87,6 @@ for epoch in tqdm(range(1000)):
               total_metrics["nProposals"],
               total_metrics["nCorrect"]))
        if epoch % 10 == 0:
-              torch.save(model, "ComplexYOLO_latest_euler_nC5.pt")
-torch.save(model, f"ComplexYOLO_epoch{epoch+1}_euler_nC5.pt")
+              torch.save(model, "ComplexYOLO_latest.pt")
+torch.save(model, f"ComplexYOLO_{epoch+1}e.pt")
 
