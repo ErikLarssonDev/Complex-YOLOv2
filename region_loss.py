@@ -119,11 +119,10 @@ class RegionLoss(nn.Module):
         prediction = x.view(nB, nA, self.bbox_attrs, nH, nW).permute(0, 1, 3, 4, 2).contiguous()  # prediction [12,5,16,32,12]
 
         # Get outputs
-        # TODO: Where is height?
         x = torch.sigmoid(prediction[..., 0])  # Center x
         y = torch.sigmoid(prediction[..., 1])  # Center y
         w = prediction[..., 2]  # Width
-        h = prediction[..., 3]  # Height
+        h = prediction[..., 3]  # Height is length
         im = prediction[..., 4]  # Im
         re = prediction[..., 5]  # Re
         pred_conf = torch.sigmoid(prediction[..., 6])  # Conf
@@ -145,8 +144,6 @@ class RegionLoss(nn.Module):
         pred_boxes[..., 4] = prediction[..., 4]
         pred_boxes[..., 5] = prediction[..., 5]
 
-
-
         if x.is_cuda:
             self.mse_loss = self.mse_loss.cuda()
             self.bce_loss = self.bce_loss.cuda()
@@ -164,20 +161,11 @@ class RegionLoss(nn.Module):
             nW=nW,
             ignore_thres=self.ignore_thres
         )
-        # print(f"x: {x.shape}")
-        # print(f"prediction: {prediction.shape}")
-        # print(f"targets: {targets.shape}")
-        # print(f"pred_boxes: {pred_boxes.shape}")
-        # print(f"pred_conf: {pred_conf.shape}")
-        # print(f"nProposals: {int((pred_conf > 0.5).sum().item())}")
-        # print(f"pred_conf: {pred_conf.shape}")
-        # print(f"nCorrect: {nCorrect}")
-        # print(f"nGT: {nGT}")
+
         nProposals = int((pred_conf > 0.5).sum().item())
         recall = float(nCorrect / nGT) if nGT else 1
         precision = float(nCorrect / nProposals) # TODO: Why can precision be greater than 1? How can nProposals can be lower than nCorrect?
         
-
         # Handle masks
         mask = Variable(mask.type(ByteTensor))
         conf_mask = Variable(conf_mask.type(ByteTensor))
@@ -209,12 +197,19 @@ class RegionLoss(nn.Module):
         loss_conf = self.bce_loss(pred_conf[conf_mask_false], tconf[conf_mask_false]) + self.bce_loss(
             pred_conf[conf_mask_true], tconf[conf_mask_true]
         )
-        loss_cls = (1 / nB) * self.ce_loss(pred_cls[mask], torch.argmax(tcls[mask], 1))
-        loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls + loss_Euler
+        if tcls[mask].size()[0] == 0:
+            # print('tcls[mask] is None')
+            # print(f"tcls: {tcls}")
+            # print(f"pred_cls: {pred_cls}")
+            # print(f"mask: {mask}")
+            # print(f"tcls[mask]: {tcls[mask]}")
+            # print(f"pred_cls[mask]: {pred_cls[mask]}")
+            loss_cls = -1
+            loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_Euler
+        else:
+            loss_cls = (1 / nB) * self.ce_loss(pred_cls[mask], torch.argmax(tcls[mask], 1))
+            loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls + loss_Euler
 
-        # print('nGT %d, recall %f, precision %f, proposals %d, loss: x %f, y %f, w %f, h %f, conf %f, cls %f, total %f' % \
-        #          (nGT, recall,  precision,  nProposals, loss_x, loss_y, loss_w, loss_h, loss_conf, loss_cls,loss))
-        # Unclear why .data does not work here any more
         metrics = {
             'nGT': nGT,
             'recall': recall,
@@ -226,7 +221,7 @@ class RegionLoss(nn.Module):
             'loss_w': loss_w.data,
             'loss_h': loss_h.data,
             'loss_conf': loss_conf.data,
-            'loss_cls': loss_cls.data,
+            'loss_cls': loss_cls,
             'loss': loss.data 
         }
 
