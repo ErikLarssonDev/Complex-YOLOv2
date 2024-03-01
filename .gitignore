@@ -16,3 +16,4 @@ venv/
 output
 version.py
 nohup.out
+results
