@@ -189,14 +189,16 @@ def get_image_statistics_rotated_bbox(output, targets, iou_thresholds, num_class
                         prediction_indexes_to_match.append(prev_match)
                         break
             
-            # Calculate statistics for the IoU threshold TODO: Do it for each class
+      
+            # with open("matched_boxes_metric.txt", "ab") as f:
+            #     np.savetxt(f, matched_boxes)
             for gt_index, pred_idx in enumerate(matched_boxes):
                 if pred_idx == -1:
-                    false_negatives[target_labels[gt_box_idx], iou_threshold_i] += 1
+                    false_negatives[target_labels[gt_index], iou_threshold_i] += 1
                 elif pred_labels[pred_idx] == target_labels[gt_index]:
                     true_positives[target_labels[gt_index], iou_threshold_i] += 1
                 else:
-                    false_negatives[iou_threshold_i, target_labels[gt_index]] += 1
+                    false_negatives[target_labels[gt_index], iou_threshold_i] += 1
                     false_positives[pred_labels[pred_idx], iou_threshold_i] += 1
             
             for pred_idx in range(len(pred_boxes)):

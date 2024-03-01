@@ -112,12 +112,28 @@ bc = cnf.boundary
 
 if __name__ == '__main__':
     args = parse_train_configs()
+    batch_size=1 
     dataset=ZOD_Dataset(root='./minzod_mmdet3d',set='train')
-    data_loader = torch.utils.data.DataLoader(dataset, 1, shuffle=False)
+    data_loader = torch.utils.data.DataLoader(dataset, batch_size, shuffle=False)
 
     # define loss function
     region_loss = RegionLoss(num_classes=5, num_anchors=5)
+
+    # eval result
+    iou_thresholds=[0.01, 0.1, 0.3, 0.5, 0.7, 0.9]
+    conf_thresh = args.conf_thresh
+    nms_thresh = args.nms_thresh # TODO: Non-maximum suppression threshold is not done yet
+    num_classes = int(5)
+    num_anchors = int(5)
+    true_positives_bev = np.zeros((batch_size, len(cnf.class_list), len(iou_thresholds)))
+    false_positives_bev = np.zeros((batch_size, len(cnf.class_list), len(iou_thresholds)))
+    false_negatives_bev = np.zeros((batch_size, len(cnf.class_list), len(iou_thresholds)))
+    true_positives = np.zeros((batch_size, len(cnf.class_list), len(iou_thresholds)))
+    false_positives = np.zeros((batch_size, len(cnf.class_list), len(iou_thresholds)))
+    false_negatives = np.zeros((batch_size, len(cnf.class_list), len(iou_thresholds)))
     total_inference_time = 0
+    gt_class_counts = np.zeros(len(cnf.class_list))
+    pred_class_counts = np.zeros(len(cnf.class_list))
     for batch_idx, (rgb_map, targets) in enumerate(data_loader):
         model = torch.load('ComplexYOLO_3000e.pt')
         model.cuda()
@@ -126,15 +142,6 @@ if __name__ == '__main__':
         output = model(rgb_map.float().cuda())  # torch.Size([1, 60, 16, 32])
         total_inference_time += time.time() - inference_time
 
-        # eval result
-        iou_thresholds=[0.1, 0.3, 0.5, 0.7, 0.9]
-        conf_thresh = args.conf_thresh
-        nms_thresh = args.nms_thresh # TODO: Non-maximum suppression threshold is not done yet
-        num_classes = int(5)
-        num_anchors = int(5)
-        true_positives = np.zeros((output.size(0), len(cnf.class_list), len(iou_thresholds)))
-        false_positives = np.zeros((output.size(0), len(cnf.class_list), len(iou_thresholds)))
-        false_negatives = np.zeros((output.size(0), len(cnf.class_list), len(iou_thresholds)))
         # for all images in a batch
         for image_idx in range(output.size(0)):
             # Printing ground truth
@@ -192,9 +199,10 @@ if __name__ == '__main__':
             metric_pred = inverse_yolo_targets(np.array(pred_boxes)[:, :7])
 
             # TODO: boxes and targets should be saved to csv file
-            
-
-            # Printing in metric space
+            pred_class_counts += np.bincount(pred_boxes[:, 0].astype(int))
+            gt_class_counts += np.bincount(ground_truth[:, 0].numpy().astype(int))
+          
+            # # Printing in metric space
             # img_metric = np.zeros((250, 50, 3), dtype=np.uint8)
             # img_metric = cv2.resize(img_metric, (250, 50))
             # for c, x, y, w, l, yaw in metric_gt[:, 0:6]: # targets = [cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))]
@@ -209,12 +217,17 @@ if __name__ == '__main__':
             # img_metric = cv2.rotate(img_metric, cv2.ROTATE_180)
             # cv2.imshow('img_metric', img_metric)
      
-            
-            tp, fp, fn = evaluate_image(metric_gt, metric_pred, iou_thresholds=iou_thresholds) # TODO: Compare with BEV format
+
+            tp, fp, fn = evaluate_image(metric_pred, metric_gt, iou_thresholds=iou_thresholds) # TODO: Compare with BEV format
             true_positives[image_idx] += tp
             false_positives[image_idx] += fp
             false_negatives[image_idx] += fn
       
+            tp_bev, fp_bev, fn_bev = evaluate_image(image_boxes[:, 0:6], image_targets[:, 0:6], iou_thresholds=iou_thresholds)
+            true_positives_bev[image_idx] += tp_bev
+            false_positives_bev[image_idx] += fp_bev
+            false_negatives_bev[image_idx] += fn_bev
+
         if args.show_results:
             key = cv2.waitKey(0) & 0xFF  # Ensure the result is an 8-bit integer
             if key == 27:  # Check if 'Esc' key is pressed
@@ -223,6 +236,29 @@ if __name__ == '__main__':
             elif key == 110:
                 show_next_image = True  # Set the flag to False to avoid showing the same image again
                 continue  # Skip the rest of the loop and go to the next iteration
-    precision, recall, f1 = precision_recall_f1(tp, fp, fn)
-    print(f"TOTAL: precision:\n {precision} \nrecall:\n {recall} \nf1:\n {f1}")
+
+    precision, recall, f1 = precision_recall_f1(np.sum(true_positives, axis=0), np.sum(false_positives, axis=0), np.sum(false_negatives, axis=0))
+    precision_bev, recall_bev, f1_bev = precision_recall_f1(np.sum(true_positives_bev, axis=0), np.sum(false_positives_bev, axis=0), np.sum(false_negatives_bev, axis=0))
+    print(f"gt_class_counts: {gt_class_counts}")
+    print(f"tp+fn: {true_positives[0, :, 0] + false_negatives[0, :, 0]}")
+    print(f"SUMS: gt_class_counts: {np.sum(gt_class_counts)} tp+fn: {np.sum(true_positives[0, :, 0] + false_negatives[0, :, 0])}")
+
+    print(f"pred_class_counts: {pred_class_counts}")
+    print(f"tp+fp: {true_positives[0, :, 0] + false_positives[0, :, 0]}")
+
+    print(f"Upper limit recall: {pred_class_counts / gt_class_counts +1e-16}")
+
+    print(f"bev tp+fp: {true_positives_bev[0, :, 0] + false_positives_bev[0, :, 0]}")
+    print(f"bev tp+fn: {true_positives_bev[0, :, 0] + false_negatives_bev[0, :, 0]}")
+
+    print(f"true_positives: {true_positives}")
+    print(f"false_positives: {false_positives}")
+    print(f"false_negatives: {false_negatives}")
+
+    print(f"true_positives_bev: {true_positives_bev}")
+    print(f"false_positives_bev: {false_positives_bev}")
+    print(f"false_negatives_bev: {false_negatives_bev}")
+
+    print(f"Metric: precision:\n {precision} \nrecall:\n {recall} \nf1:\n {f1}")
+    print(f"BEV: precision:\n {precision_bev} \nrecall:\n {recall_bev} \nf1:\n {f1_bev}")
     print(f"Average inference time: {total_inference_time / len(data_loader)}")
