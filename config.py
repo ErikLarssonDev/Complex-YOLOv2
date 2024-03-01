@@ -45,8 +45,6 @@ BEV_HEIGHT = 512 # Original: 512 Y [-40, 40] --> 320
 # Cell size: 3200 / (1024 x 512) = 0.006103515625 # Original: about 8cm
 # Cell size: 12500 / (1500 x 1500) = 0.005555555555555556 # Original: about 8cm
 
-# DISCRETIZATION = (boundary["maxX"] - boundary["minX"]) / BEV_HEIGHT
-
 DISCRETIZATION_X = (boundary["maxX"] - boundary["minX"]) / BEV_HEIGHT 
 DISCRETIZATION_Y = (boundary["maxY"] - boundary["minY"]) / BEV_WIDTH 
 
