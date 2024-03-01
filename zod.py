@@ -13,8 +13,7 @@ bc = cnf.boundary
 # TODO: Rebuild this dataset but with the ZOD dataset format
 class ZOD_Dataset(torch.utils.data.Dataset):
 
-    def __init__(self, root='/minzod_mmdet3d',set='train',type='velodyne_train'):
-        self.type = type
+    def __init__(self, root='/minzod_mmdet3d',set='train'):
         self.root = root
         self.data_path = os.path.join(root)
         self.lidar_path = os.path.join(self.data_path, "points/")
@@ -31,7 +30,14 @@ class ZOD_Dataset(torch.utils.data.Dataset):
         lines = [line.rstrip() for line in open(label_file)]
         labels = [label_file_line.split(' ') for label_file_line in lines]
         target = [[*label[:7], cnf.CLASS_NAME_TO_ID[str(label[7])], *label[8:]] for label in labels]
-        target = np.array(target, dtype=np.float32)
+        target = np.array(target, dtype=np.float32) 
+        
+        # TODO: If annotations is empty, then pick a new image
+        if len(target) == 0:
+            print(f"\nEmpty annotations for {self.file_list[i]}")
+            new_index = np.random.randint(0, len(self.file_list))
+            print(f"Trying a new image with index {new_index} instead")
+            return self.__getitem__(new_index)
         target = self.build_yolo_target_ZOD(target)
         # target = get_target(label_file,calib['Tr_velo2cam'])
         #print(target)
