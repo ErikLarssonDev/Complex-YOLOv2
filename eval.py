@@ -12,11 +12,22 @@ import cv2
 from scipy import misc
 from region_loss import RegionLoss
 
-from zod import ZOD_Dataset
+from zod import ZOD_Dataset, inverse_yolo_targets
 import config as cnf
 from kitti_bev_utils import *
 import utils
 import eval_utils
+import argparse
+
+def parse_train_configs():
+    parser = argparse.ArgumentParser(description='The Implementation of Complex YOLOv2')
+    parser.add_argument("--show_results", action="store_true", help="Show results")
+    parser.add_argument("--save_results", action="store_true", help="Save results")
+    parser.add_argument("--conf_thresh", type=float, default=0.5, help="Confidence threshold")
+    parser.add_argument("--nms_thresh", type=float, default=0.5, help="Non-maximum suppression threshold")
+
+
+    return parser.parse_args()
 
 
 def drawRect(img, pt1, pt2, pt3, pt4, color, lineWidth):
@@ -61,7 +72,7 @@ def get_region_boxes(x, conf_thresh, num_classes, anchors, num_anchors):
     anchor_h = scaled_anchors[:, 1:2].view((1, nA, 1, 1))
 
     # Add offset and scale with anchors
-    pred_boxes = FloatTensor(prediction.shape[0],prediction.shape[1],prediction.shape[2],prediction.shape[3],8)
+    pred_boxes = FloatTensor(prediction.shape)
     pred_boxes[..., 0] = x.data + grid_x
     pred_boxes[..., 1] = y.data + grid_y
     pred_boxes[..., 2] = torch.exp(w.data) * anchor_w
@@ -69,15 +80,15 @@ def get_region_boxes(x, conf_thresh, num_classes, anchors, num_anchors):
     pred_boxes[..., 4] = im.data
     pred_boxes[..., 5] = re.data
     pred_boxes[..., 6] = pred_conf
-    pred_boxes[..., 7] = torch.argmax(pred_cls)
-    print(f"pred_boxes.shape: {pred_boxes.shape}")
+    pred_boxes[..., 7:] = pred_cls
 
-    pred_boxes = utils.convert2cpu(pred_boxes.transpose(0, 1).contiguous().view(-1, (8))).detach().numpy()  # torch.Size([1, num_boxes, 8])
+    pred_boxes = utils.convert2cpu(pred_boxes.transpose(0, 1).contiguous().view(-1, (12))).detach().numpy()  # torch.Size([1, num_boxes, 8])
     
-    all_boxes = []
+    all_boxes = np.array([]).reshape(0, 8)
     for i in range(pred_boxes.shape[0]):
         if pred_boxes[i][6] > conf_thresh:
-            all_boxes.append(pred_boxes[i])
+            pred_boxes[i][0:8] = np.insert(pred_boxes[i], 0, np.argmax(pred_boxes[i][7:]), axis=0)[0:8]
+            all_boxes = np.append(all_boxes, [pred_boxes[i][0:8]], axis=0)
     return all_boxes
 
 
@@ -88,46 +99,52 @@ def evaluate_mAP(predictions, targets, iou_thresholds=[0.1, 0.3, 0.5, 0.7, 0.9])
     return precision, recall, AP, f1, ap_class
 
 def evaluate_image(predictions, targets, iou_thresholds=[0.1, 0.3, 0.5, 0.7, 0.9]):
-    sample_metrics = eval_utils.get_image_statistics_rotated_bbox(predictions, targets, iou_thresholds=iou_thresholds)
-    true_positives, pred_scores, pred_labels = [np.concatenate(x, 0) for x in list(zip(*sample_metrics))]
+    tp, fp, fn = eval_utils.get_image_statistics_rotated_bbox(predictions, targets, iou_thresholds=iou_thresholds)
+    return tp, fp, fn # These have shape [num_classes, IoU_thresholds]
 
-    return tp, tn, fp, fn # These have shape [num_classes, IoU_thresholds]
+def precision_recall_f1(tp, fp, fn):
+    precision = tp / (tp + fp + 1e-16)
+    recall = tp / (tp + fn + 1e-16)
+    f1 = 2 * precision * recall / (precision + recall + 1e-16)
+    return precision, recall, f1
     
 bc = cnf.boundary
 
 if __name__ == '__main__':
+    args = parse_train_configs()
     dataset=ZOD_Dataset(root='./minzod_mmdet3d',set='train')
     data_loader = torch.utils.data.DataLoader(dataset, 1, shuffle=False)
 
     # define loss function
     region_loss = RegionLoss(num_classes=5, num_anchors=5)
-
+    total_inference_time = 0
     for batch_idx, (rgb_map, targets) in enumerate(data_loader):
-        model = torch.load('ComplexYOLO_latest_euler_nC5.pt')
+        model = torch.load('ComplexYOLO_3000e.pt')
         model.cuda()
         model.eval()
+        inference_time = time.time()
         output = model(rgb_map.float().cuda())  # torch.Size([1, 60, 16, 32])
+        total_inference_time += time.time() - inference_time
 
         # eval result
-        conf_thresh = 0.5
-        nms_thresh = 0.5
+        iou_thresholds=[0.1, 0.3, 0.5, 0.7, 0.9]
+        conf_thresh = args.conf_thresh
+        nms_thresh = args.nms_thresh # TODO: Non-maximum suppression threshold is not done yet
         num_classes = int(5)
         num_anchors = int(5)
+        true_positives = np.zeros((output.size(0), len(cnf.class_list), len(iou_thresholds)))
+        false_positives = np.zeros((output.size(0), len(cnf.class_list), len(iou_thresholds)))
+        false_negatives = np.zeros((output.size(0), len(cnf.class_list), len(iou_thresholds)))
         # for all images in a batch
         for image_idx in range(output.size(0)):
-            image_boxes = get_region_boxes(output[image_idx], conf_thresh, num_classes, utils.anchors, num_anchors)
+            # Printing ground truth
             image_targets = targets[image_idx]
-            # get pred boxes
-            # get gt boxes
-            # count total tp tn fp fn per class per IoU threshold, each metric is [num_classes, IoU_thresholds]
-        # Sum up all metrics and return
-            
-
-            image_targets[:, 1] *= cnf.BEV_WIDTH # x 0.1 
-            image_targets[:, 2] *= cnf.BEV_HEIGHT # y 0.1 
+            ground_truth = copy.deepcopy(image_targets)
+            image_targets[:, 1] *= cnf.BEV_WIDTH # x 
+            image_targets[:, 2] *= cnf.BEV_HEIGHT # y
             image_targets[:, 3] *= cnf.BEV_WIDTH * ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / (cnf.BEV_WIDTH / cnf.BEV_HEIGHT)  # 5/3
             image_targets[:, 4] *= cnf.BEV_HEIGHT *  (cnf.BEV_WIDTH / cnf.BEV_HEIGHT) / ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"]))  # 3/5
-            image_targets[:, 5] = torch.atan2(image_targets[:, 5], image_targets[:, 6]) # Get yaw angle
+            image_targets[:, 5] = torch.atan2(image_targets[:, 5], image_targets[:, 6])
 
             img_bev = rgb_map[image_idx] * 255
             img_bev = img_bev.permute(1, 2, 0).numpy().astype(np.uint8)
@@ -137,41 +154,75 @@ if __name__ == '__main__':
                 # Draw rotated box
                 drawRotatedBox(img_bev, x, y, w, l, yaw, cnf.colors[int(c)])
        
+            # Printing predictions
+            image_boxes = get_region_boxes(output[image_idx], conf_thresh, num_classes, utils.anchors, num_anchors) # Convert the boxes from the output with anchors to acutal boxes
+            pred_boxes = copy.deepcopy(image_boxes)
             for i in range(len(image_boxes)):
-                image_boxes[i][0] *= cnf.BEV_WIDTH / 32.0 # 32 cell = 1024 pixels
-                image_boxes[i][1] *= cnf.BEV_HEIGHT / 16.0  # 16 cell = 512 pixels
-                image_boxes[i][2] *= cnf.BEV_WIDTH * ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / (cnf.BEV_WIDTH / cnf.BEV_HEIGHT)  / 32.0  # 32 cell = 1024 pixels
-                image_boxes[i][3] *= cnf.BEV_HEIGHT * (cnf.BEV_WIDTH / cnf.BEV_HEIGHT) / ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / 16.0  # 16 cell = 512 pixels
-                image_boxes[i][4] = np.arctan2(image_boxes[i][4], image_boxes[i][5])
-                image_boxes[i][5] = image_boxes[i][6]
-                image_boxes[i][6] = image_boxes[i][7] 
+                image_boxes[i][1] *= cnf.BEV_WIDTH / 32.0 # 32 cell = 1024 pixels
+                image_boxes[i][2] *= cnf.BEV_HEIGHT / 16.0  # 16 cell = 512 pixels
+                image_boxes[i][3] *= cnf.BEV_WIDTH * ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / (cnf.BEV_WIDTH / cnf.BEV_HEIGHT)  / 32.0  # 32 cell = 1024 pixels
+                image_boxes[i][4] *= cnf.BEV_HEIGHT * (cnf.BEV_WIDTH / cnf.BEV_HEIGHT) / ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / 16.0  # 16 cell = 512 pixels
+                image_boxes[i][5] = np.arctan2(image_boxes[i][5], image_boxes[i][6])
+                image_boxes[i][6] = image_boxes[i][7]
                 drawRotatedBox(img_bev,
-                               image_boxes[i][0],
                                image_boxes[i][1],
                                image_boxes[i][2],
                                image_boxes[i][3],
                                image_boxes[i][4],
-                               (0, 0, 255),
-                               2,
+                               image_boxes[i][5],
+                               cnf.colors[int(image_boxes[i][0])],
+                               1,
                                (165, 0, 255))
 
             img_bev = cv2.rotate(img_bev, cv2.ROTATE_180)
-            cv2.imshow('single_sample', img_bev)
-            print(f"\nShowing image {batch_idx}\n")
-            # TODO: image_boxes and image_targets are in BEV format, should be metric space
-            precision, recall, AP, f1, ap_class = evaluate_image(np.array(image_boxes)[:, :7], image_targets[:, :6])
-            print(f"precision: {precision}")
-            print(f"recall: {recall}")
-            print(f"AP: {AP}")
-            print(f"f1: {f1}")
-            print(f"ap_class: {ap_class}")
+            if args.show_results:
+                cv2.imshow('single_sample', img_bev)
+                print(f"\nShowing image {batch_idx}\n")
+            
+            if args.save_results:
+                cv2.imwrite(f"results/{batch_idx}.png", img_bev)
 
-        key = cv2.waitKey(0) & 0xFF  # Ensure the result is an 8-bit integer
-        if key == 27:  # Check if 'Esc' key is pressed
-            cv2.destroyAllWindows() 
-            break
-        elif key == 110:
-            show_next_image = True  # Set the flag to False to avoid showing the same image again
-            continue  # Skip the rest of the loop and go to the next iteration
-        # break
-    print('done')
+            # Converting the pred_boxes and ground_truth to metric space
+            pred_boxes[:, 1] /= 32.0
+            pred_boxes[:, 2] /= 16.0
+            pred_boxes[:, 3] /= 32.0
+            pred_boxes[:, 4] /= 16.0
+            
+            metric_gt = inverse_yolo_targets(np.array(ground_truth)[:, :7])
+            metric_pred = inverse_yolo_targets(np.array(pred_boxes)[:, :7])
+
+            # TODO: boxes and targets should be saved to csv file
+            
+
+            # Printing in metric space
+            # img_metric = np.zeros((250, 50, 3), dtype=np.uint8)
+            # img_metric = cv2.resize(img_metric, (250, 50))
+            # for c, x, y, w, l, yaw in metric_gt[:, 0:6]: # targets = [cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))]
+            #     # Draw rotated box
+            #     drawRotatedBox(img_metric, x, y+25, w, l, yaw, cnf.colors[int(c)])
+            
+            # for c, x, y, w, l, yaw in metric_pred[:, 0:6]: # targets = [cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))]
+            #     # Draw rotated box
+            #     drawRotatedBox(img_metric, x, y+25, w, l, yaw, cnf.colors[int(c)], 1 ,(165, 0, 255))
+                
+            # img_metric = cv2.resize(img_metric, (2000, 500))
+            # img_metric = cv2.rotate(img_metric, cv2.ROTATE_180)
+            # cv2.imshow('img_metric', img_metric)
+     
+            
+            tp, fp, fn = evaluate_image(metric_gt, metric_pred, iou_thresholds=iou_thresholds) # TODO: Compare with BEV format
+            true_positives[image_idx] += tp
+            false_positives[image_idx] += fp
+            false_negatives[image_idx] += fn
+      
+        if args.show_results:
+            key = cv2.waitKey(0) & 0xFF  # Ensure the result is an 8-bit integer
+            if key == 27:  # Check if 'Esc' key is pressed
+                cv2.destroyAllWindows() 
+                break
+            elif key == 110:
+                show_next_image = True  # Set the flag to False to avoid showing the same image again
+                continue  # Skip the rest of the loop and go to the next iteration
+    precision, recall, f1 = precision_recall_f1(tp, fp, fn)
+    print(f"TOTAL: precision:\n {precision} \nrecall:\n {recall} \nf1:\n {f1}")
+    print(f"Average inference time: {total_inference_time / len(data_loader)}")

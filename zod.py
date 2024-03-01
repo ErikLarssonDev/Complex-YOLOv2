@@ -66,6 +66,25 @@ class ZOD_Dataset(torch.utils.data.Dataset):
                 target.append([cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))])
 
         return np.array(target, dtype=np.float32)
+    
+def inverse_yolo_targets(targets):
+    labels = []
+    for t in targets:
+        c, y, x, w, l, im, re = t
+        # z, h = -1.55, 1.5 # z and h are set as the mean of the data
+        # if c == 1:
+        #     h = 1.8
+        # elif c == 2:
+        #     h = 1.4
+
+        x = x * (bc["maxX"] - bc["minX"]) + bc["minX"]
+        y = y * (bc["maxY"] - bc["minY"]) + bc["minY"]
+        w = w * (bc["maxY"] - bc["minY"])
+        l = l * (bc["maxX"] - bc["minX"])
+        yaw = math.atan2(im, re)
+        labels.append([c, y, x, w, l, yaw])
+   
+    return np.array(labels)
 
 if __name__ == '__main__':
     dataset=ZOD_Dataset(root='./minzod_mmdet3d',set='train')

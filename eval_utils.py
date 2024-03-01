@@ -1,11 +1,13 @@
 from __future__ import division
 import math
+import time
 import sys
 import tqdm
 
 import torch
 import numpy as np
 from shapely.geometry import Polygon
+import rotate_iou
 
 # sys.path.append('../')
 
@@ -152,91 +154,56 @@ def compute_ap(recall, precision):
 
 def get_image_statistics_rotated_bbox(output, targets, iou_thresholds, num_classes=5):
     """ Compute true positives, predicted scores and predicted labels per sample """
-    print(f"output: {output.shape}")
 
-    pred_boxes = output[:,:5]
-    pred_scores = output[:,5]
-    pred_labels = output[:,6]
+    pred_labels = np.array(output[:,0]).astype(np.int32)
+    pred_boxes = output[:,1:]
 
     true_positives = np.zeros((num_classes, len(iou_thresholds)))
-    true_negatives = np.zeros((num_classes, len(iou_thresholds)))
     false_positives = np.zeros((num_classes, len(iou_thresholds)))
     false_negatives = np.zeros((num_classes, len(iou_thresholds)))
-    annotations = targets
-    if len(annotations) > 0:
-        target_labels = annotations[:, 0]
-        detected_boxes = []
-        target_boxes = annotations[:, 1:]
-        print(f"target_boxes: {target_boxes.shape}")
+    if len(targets) > 0:
+        target_labels = np.array(targets[:, 0]).astype(np.int32)
+        target_boxes = targets[:, 1:]
         overlap_matrix = np.zeros((len(pred_boxes), len(target_boxes)))
-        for pred_i, (pred_box, pred_label) in enumerate(zip(pred_boxes, pred_labels)):
-            overlap_matrix[pred_i] = iou_rotated_single_vs_multi_boxes_cpu(pred_box, target_boxes)
-        print(f"overlap_matrix: {overlap_matrix.shape}")
-        print(f"pred_boxes: {pred_boxes.shape}")
-        print(f"target_boxes: {target_boxes.shape}")
+
+        overlap_matrix = rotate_iou.rotate_iou_gpu_eval(np.array(pred_boxes), np.array(target_boxes))
         for iou_threshold_i, iou_threshold in enumerate(iou_thresholds):
-            for pred_i, (pred_box, pred_label, pred_score) in enumerate(zip(pred_boxes, pred_labels, pred_scores)):
-                max_iou = 0
-                matched_gt_box = None
-                matched_boxes = []
+            prediction_indexes_to_match = list(range(len(pred_boxes)))
+            matched_boxes = np.full(len(target_boxes), -1) # pred indices for each gt box, -1 means not matched
+            while len(prediction_indexes_to_match) > 0:
+                pred_i = prediction_indexes_to_match.pop(0)
+                
+                # Create a list with all the iou for the pred_i box and sort it
+                iou_sorted_gt_indexes = np.argsort(overlap_matrix[pred_i])[::-1]
 
-                for gt_box_idx in range(len(target_boxes)):
-                    iou = overlap_matrix[pred_i, gt_box_idx]
-                if iou > max_iou:
-                    max_iou = iou
-                    matched_gt_box = gt_box_idx
-
-                if max_iou >= iou_threshold:
-                    true_positives += 1
-                    matched_boxes.append(matched_gt_box)
+                for gt_box_idx in iou_sorted_gt_indexes:
+                    candidate_match_iou = overlap_matrix[pred_i, gt_box_idx]
+                    if candidate_match_iou < iou_threshold:
+                        break
+                    prev_match = matched_boxes[gt_box_idx]
+                    if prev_match == -1:
+                        matched_boxes[gt_box_idx] = pred_i
+                        break
+                    elif overlap_matrix[prev_match, gt_box_idx] < candidate_match_iou:
+                        matched_boxes[gt_box_idx] = pred_i
+                        prediction_indexes_to_match.append(prev_match)
+                        break
+            
+            # Calculate statistics for the IoU threshold TODO: Do it for each class
+            for gt_index, pred_idx in enumerate(matched_boxes):
+                if pred_idx == -1:
+                    false_negatives[target_labels[gt_box_idx], iou_threshold_i] += 1
+                elif pred_labels[pred_idx] == target_labels[gt_index]:
+                    true_positives[target_labels[gt_index], iou_threshold_i] += 1
                 else:
-                    false_positives += 1
+                    false_negatives[iou_threshold_i, target_labels[gt_index]] += 1
+                    false_positives[pred_labels[pred_idx], iou_threshold_i] += 1
+            
+            for pred_idx in range(len(pred_boxes)):
+                if pred_idx not in matched_boxes:
+                    false_positives[pred_labels[pred_idx], iou_threshold_i] += 1
 
-                false_negatives = len(gt_boxes)
-
-                # If targets are found break
-                if len(detected_boxes) == len(annotations):
-                    break
-
-                # Ignore if label is not one of the target labels
-                if pred_label not in target_labels:
-                    continue
-
-                # for iou_threshold in iou_thresholds:
-                #     if iou >= iou_threshold and box_index not in detected_boxes:
-                #         true_positives[pred_i] = 1
-                #         detected_boxes += [box_index]
-
-    return true_positives, true_negatives, false_positives, false_negatives
-
-def calculate_precision_recall(gt_boxes, pred_boxes, iou_threshold=0.5):
-    true_positives = 0
-    false_positives = 0
-    false_negatives = 0
-
-    for pred_box in pred_boxes:
-        max_iou = 0
-        matched_gt_box = None
-
-        for gt_box in gt_boxes:
-            iou = calculate_iou(gt_box, pred_box)
-            if iou > max_iou:
-                max_iou = iou
-                matched_gt_box = gt_box
-
-        if max_iou >= iou_threshold:
-            true_positives += 1
-            gt_boxes.remove(matched_gt_box)
-        else:
-            false_positives += 1
-
-    false_negatives = len(gt_boxes)
-    precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
-    recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
-
-    return precision, recall
-
-
+    return true_positives, false_positives, false_negatives
 
 def iou_rotated_single_vs_multi_boxes_cpu(single_box, multi_boxes):
     """
