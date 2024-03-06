@@ -12,31 +12,18 @@ from complexYOLO import ComplexYOLO
 from kitti import KittiDataset
 from zod import ZOD_Dataset
 from region_loss import RegionLoss
+from eval import model_eval
+import wandb
 
 import config as cnf
 
 bc = cnf.boundary
 
-batch_size=1 # TODO: Check if we can get 2 to work
-
-# def collate_fn(batch):
-#        imgs, targets = list(zip(*batch))
-#        # Remove empty placeholder targets
-#        # targets = [boxes for boxes in targets if boxes is not None]
-#        # TODO: Do we need to add sample index to targets?
-#        # Add sample index to targets
-#        # for i, boxes in enumerate(targets):
-#        #        boxes[:, 0] = i
-#        targets = torch.cat(targets, 0)
-#        imgs = torch.stack(imgs, 0)
-
-#        print(f"targets: {targets.shape}")
-#        print(f"imgs: {imgs.shape}")
-#        return imgs, targets.unsqueeze(0)
-
 # dataset
-dataset=ZOD_Dataset(root='./zod',set='train')
-data_loader = data.DataLoader(dataset, batch_size, shuffle=False, num_workers=1) # TODO: Why error when more than 1 worker?
+train_dataset=ZOD_Dataset(root=cnf.CONFIG["dataset"],set='train')
+val_dataset=ZOD_Dataset(root=cnf.CONFIG["dataset"],set='val')
+data_loader = data.DataLoader(train_dataset, cnf.CONFIG["batch_size"], shuffle=True, num_workers=1) # The shm memory is not enough for num_workers >=2
+val_loader = data.DataLoader(val_dataset, cnf.CONFIG["batch_size"], shuffle=False, num_workers=1)
 
 model = ComplexYOLO()
 # model = torch.load('ComplexYOLO_1000e.pt')
@@ -47,48 +34,49 @@ optimizer = optim.Adam(model.parameters())
 # define loss function
 region_loss = RegionLoss(num_classes=5, num_anchors=5)
 
-for epoch in tqdm(range(1)):
+
+wandb.init(
+    # set the wandb project where this run will be logged
+    project="exjobb",
+    
+    # track hyperparameters and run metadata
+    config=cnf.CONFIG
+)
+
+for epoch in tqdm(range(cnf.CONFIG["epochs"])):
        total_loss = 0
        total_metrics = {
-            'nGT': 0,
-            'recall': 0,
-            'precision': 0,
-            'nProposals': 0,
-            'nCorrect': 0,
-            'loss_x': 0,
-            'loss_y': 0,
-            'loss_w': 0,
-            'loss_h': 0,
-            'loss_conf': 0,
-            'loss_cls': 0,
-            'loss': 0
-        }
+        "total_loss": 0,
+        "precision": [],
+        "recall": [],
+        "f1": [],
+        "true_positives": [],
+        "false_positives": [],
+        "false_negatives": [],
+        "inference_time": 0
+    }
        start_time_epoch = time.time()        
        for batch_idx, (rgb_map, target) in tqdm(enumerate(data_loader)):
+              # start_time = time.time()
               optimizer.zero_grad()
-              # inference_time = time.time()
               output = model(rgb_map.float().cuda())
               # print(f"inference_time: {time.time() - inference_time}")
 
-              loss, metrics = region_loss(output, target)
-              if metrics['loss_cls'] == -1:
-                     print(f"loss_cls -1 --> mask is only false at index: {batch_idx}")
+              loss = region_loss(output, target)
               loss.backward()
               optimizer.step()
               total_loss += loss.item() 
-              for k in total_metrics.keys():
-                  total_metrics[k] += metrics[k]
-       # TODO: Calculate metrics as in eval
-       print("Epoch: %d, Time: %f, Loss: %f, Recall: %f, Precision %f, nGT %d, nProposals %d, nCorrect %d" %
-             (epoch,
+              wandb.log({"train_loss_1_iter": loss.item()})
+       
+       torch.save(model, f"ComplexYOLO_latest.pt")
+       print("Epoch: %d, Time: %f, Loss: %f" %
+             (epoch+1,
               time.time()-start_time_epoch,
-              total_loss/len(data_loader),
-              total_metrics["recall"]/len(data_loader),
-              total_metrics["precision"]/len(data_loader),
-              total_metrics["nGT"],
-              total_metrics["nProposals"],
-              total_metrics["nCorrect"]))
-       if epoch % 10 == 0:
-              torch.save(model, "ComplexYOLO_latest_zod.pt")
-torch.save(model, f"ComplexYOLO_{epoch+1}e_zod.pt")
+              total_loss/len(data_loader)))
+       
+       print("\nEvaluating the model")
+       epoch_metrics, _, _ = model_eval(model, val_loader)
+       print(f"Loss: {epoch_metrics['total_loss']}\nPrecision: {np.mean(epoch_metrics['precision'], axis=0)[19]}\nRecall: {np.mean(epoch_metrics['recall'], axis=0)[19]}\nInference time: {epoch_metrics['inference_time']}\n")
+       wandb.log({"train_loss": total_loss/len(data_loader), "val_loss": epoch_metrics['total_loss'], "val_precision_05": np.mean(epoch_metrics['precision'], axis=0)[19], "val_recall_05": np.mean(epoch_metrics['recall'], axis=0)[19]})
+torch.save(model, f"ComplexYOLO_{epoch+1}e_{cnf.BEV_WIDTH}x{cnf.BEV_HEIGHT}_bev.pt")
 
