@@ -8,6 +8,7 @@ import torch
 import numpy as np
 from shapely.geometry import Polygon
 import rotate_iou
+import config as cnf
 
 # sys.path.append('../')
 
@@ -154,7 +155,11 @@ def compute_ap(recall, precision):
 
 def get_image_statistics_rotated_bbox(output, targets, iou_thresholds, num_classes=5):
     """ Compute true positives, predicted scores and predicted labels per sample """
-
+    if len(output) == 0:
+        gt_per_class = np.zeros((num_classes, len(iou_thresholds)))
+        for i in range(len(cnf.class_list)):
+            gt_per_class[i] = np.sum(targets[:, 0] == i)
+        return np.zeros((num_classes, len(iou_thresholds))), np.zeros((num_classes, len(iou_thresholds))), gt_per_class
     pred_labels = np.array(output[:,0]).astype(np.int32)
     pred_boxes = output[:,1:]
 
@@ -189,9 +194,6 @@ def get_image_statistics_rotated_bbox(output, targets, iou_thresholds, num_class
                         prediction_indexes_to_match.append(prev_match)
                         break
             
-      
-            # with open("matched_boxes_metric.txt", "ab") as f:
-            #     np.savetxt(f, matched_boxes)
             for gt_index, pred_idx in enumerate(matched_boxes):
                 if pred_idx == -1:
                     false_negatives[target_labels[gt_index], iou_threshold_i] += 1
