@@ -9,6 +9,7 @@ import sys
 
 import cv2
 import numpy as np
+import torch
 
 sys.path.append('../')
 
@@ -79,7 +80,7 @@ def makeBVFeature(PointCloud_, Discretization_X, Discretization_Y, bc):
     RGB_Map[1, :, :] = heightMap[:cnf.BEV_HEIGHT, :cnf.BEV_WIDTH]  # g_map
     RGB_Map[0, :, :] = intensityMap[:cnf.BEV_HEIGHT, :cnf.BEV_WIDTH]  # b_map
 
-    return RGB_Map
+    return torch.tensor(RGB_Map)
 
 
 def read_labels_for_bevbox(objects):
