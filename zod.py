@@ -1,6 +1,7 @@
 from __future__ import division
 import os
 import os.path
+import time
 import torch
 import numpy as np
 import cv2
@@ -24,7 +25,6 @@ class ZOD_Dataset(torch.utils.data.Dataset):
 
 
     def __getitem__(self, i):
-
         lidar_file = self.lidar_path + '/' + self.file_list[i] + '.bin'
         label_file = self.label_path + '/' + self.file_list[i] + '.txt'
         lines = [line.rstrip() for line in open(label_file)]
@@ -32,13 +32,13 @@ class ZOD_Dataset(torch.utils.data.Dataset):
         target = [[*label[:7], cnf.CLASS_NAME_TO_ID[str(label[7])], *label[8:]] for label in labels]
         target = np.array(target, dtype=np.float32) 
         
-        # TODO: If annotations is empty, then pick a new image
+        # If annotations is empty, then pick a new image
+        target = self.build_yolo_target_ZOD(target)
         if len(target) == 0:
             print(f"\nEmpty annotations for {self.file_list[i]}")
             new_index = np.random.randint(0, len(self.file_list))
             print(f"Trying a new image with index {new_index} instead")
             return self.__getitem__(new_index)
-        target = self.build_yolo_target_ZOD(target)
         # target = get_target(label_file,calib['Tr_velo2cam'])
         #print(target)
         #print(self.file_list[i])
@@ -48,9 +48,10 @@ class ZOD_Dataset(torch.utils.data.Dataset):
         a = np.fromfile(lidar_file, dtype=np.float32).reshape(-1, 4)
 
         b = removePoints(a, bc)
-        data = makeBVFeature(b, cnf.DISCRETIZATION_X, cnf.DISCRETIZATION_Y, cnf.boundary)
-   
-        return torch.tensor(data), torch.tensor(target)
+        # start_time = time.time()
+        # data = makeBVFeature(b, cnf.DISCRETIZATION_X, cnf.DISCRETIZATION_Y, cnf.boundary) Moved this to the model as we need to time this in the inference step
+        # print(f"Time to process 1 sample: {time.time() - start_time:.2f} seconds")
+        return torch.tensor(b), torch.tensor(target)
 
 
     def __len__(self):
@@ -69,7 +70,7 @@ class ZOD_Dataset(torch.utils.data.Dataset):
                 x1 = (x - bc["minX"]) / (bc["maxX"] - bc["minX"])  # we should put this in [0,1], so divide max_size  40 m
                 w1 = w / (bc["maxY"] - bc["minY"])
                 l1 = l / (bc["maxX"] - bc["minX"])
-                target.append([cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))])
+                target.append([cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))]) # TODO: Return z, h as well
 
         return np.array(target, dtype=np.float32)
     
@@ -96,6 +97,7 @@ if __name__ == '__main__':
     dataset=ZOD_Dataset(root='./minzod_mmdet3d',set='train')
     data_loader = torch.utils.data.DataLoader(dataset, 1, shuffle=False)
     for batch_idx, (rgb_map, targets) in enumerate(data_loader):
+        
         targets = targets.squeeze(0)
         # TODO: Bounding boxes seems quite long and small
         targets[:, 1] *= cnf.BEV_WIDTH # x 0.1 
@@ -107,7 +109,9 @@ if __name__ == '__main__':
 
         # Get yaw angle
         targets[:, 5] = torch.atan2(targets[:, 5], targets[:, 6])
-        img_bev = rgb_map.squeeze() * 255
+
+        rgb_map = makeBVFeature(rgb_map.squeeze(), cnf.DISCRETIZATION_X, cnf.DISCRETIZATION_Y, cnf.boundary)
+        img_bev = rgb_map * 255
         img_bev = img_bev.permute(1, 2, 0).numpy().astype(np.uint8)
         img_bev = cv2.resize(img_bev, (cnf.BEV_WIDTH, cnf.BEV_HEIGHT)) # TODO: Resize but maintain aspect ratio
 
