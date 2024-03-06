@@ -18,3 +18,4 @@ version.py
 nohup.out
 results/
 *.out
+wandb/
