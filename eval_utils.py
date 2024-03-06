@@ -161,7 +161,7 @@ def get_image_statistics_rotated_bbox(output, targets, iou_thresholds, num_class
             gt_per_class[i] = np.sum(targets[:, 0] == i)
         return np.zeros((num_classes, len(iou_thresholds))), np.zeros((num_classes, len(iou_thresholds))), gt_per_class
     pred_labels = np.array(output[:,0]).astype(np.int32)
-    pred_boxes = output[:,1:]
+    pred_boxes = output[:, [1, 2, 4, 5, 7]] # x, y, z, w, l, h, yaw
 
     true_positives = np.zeros((num_classes, len(iou_thresholds)))
     false_positives = np.zeros((num_classes, len(iou_thresholds)))
