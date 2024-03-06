@@ -70,26 +70,25 @@ class ZOD_Dataset(torch.utils.data.Dataset):
                 x1 = (x - bc["minX"]) / (bc["maxX"] - bc["minX"])  # we should put this in [0,1], so divide max_size  40 m
                 w1 = w / (bc["maxY"] - bc["minY"])
                 l1 = l / (bc["maxX"] - bc["minX"])
-                target.append([cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))]) # TODO: Return z, h as well
-
+                target.append([cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw)), z, h])
         return np.array(target, dtype=np.float32)
     
-def inverse_yolo_targets(targets):
+def inverse_yolo_targets(targets, ground_truth=False):
+    z_h_priors = [(-1.12, 1.74), (-1.34, 1.34), (-1.07, 1.68), (-1.58, 0.64), (0.85, 2.34)] # The priors for z and h which are used at inference time, average of the training set
     labels = []
     for t in targets:
-        c, y, x, w, l, im, re = t
-        # z, h = -1.55, 1.5 # z and h are set as the mean of the data
-        # if c == 1:
-        #     h = 1.8
-        # elif c == 2:
-        #     h = 1.4
+        if ground_truth:
+            c, y, x, w, l, im, re, z, h = t
+        else:
+            c, y, x, w, l, im, re = t
+            z, h = z_h_priors[int(c)]
 
         x = x * (bc["maxX"] - bc["minX"]) + bc["minX"]
         y = y * (bc["maxY"] - bc["minY"]) + bc["minY"]
         w = w * (bc["maxY"] - bc["minY"])
         l = l * (bc["maxX"] - bc["minX"])
         yaw = math.atan2(im, re)
-        labels.append([c, y, x, w, l, yaw])
+        labels.append([c, y, x, z, w, l, h, yaw])
    
     return np.array(labels)
 
