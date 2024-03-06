@@ -10,7 +10,9 @@ import config as cnf
 # classes
 # class_list = ['Car', 'Van' , 'Truck' , 'Pedestrian' , 'Person_sitting' , 'Cyclist' , 'Tram' ]
 class_list = ['Vehicle', 'VulnerableVehicle', 'Pedestrian', 'Animal', 'StaticObject'] # TODO: Move from this file
-anchors = [[1.08,1.19], [3.42,4.41], [6.63,11.38], [9.42,5.11], [16.62,10.52]]
+# anchors = [[1.08,1.19], [3.42,4.41], [6.63,11.38], [9.42,5.11], [16.62,10.52]]
+anchors = [[4.67, 1.96], [1.68, 0.61], [0.62, 0.64], [0.89, 0.37], [0.17, 0.55]]
+# TODO: Set priors for height to enable 3D bounding box estimations
 
 def removePoints(PointCloud, BoundaryCond):
     # Boundary condition
