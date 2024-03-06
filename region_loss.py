@@ -19,8 +19,8 @@ def build_targets(pred_boxes,pred_conf, pred_cls, target, anchors, num_anchors, 
     ty         = torch.zeros(nB, nA, nH, nW) 
     tw         = torch.zeros(nB, nA, nH, nW) 
     tl         = torch.zeros(nB, nA, nH, nW)
-    tim         = torch.zeros(nB, nA, nH, nW)
-    tre         = torch.zeros(nB, nA, nH, nW)
+    tim        = torch.zeros(nB, nA, nH, nW)
+    tre        = torch.zeros(nB, nA, nH, nW)
     tconf      = torch.ByteTensor(nB, nA, nH, nW).fill_(0)
     tcls       = torch.ByteTensor(nB, nA, nH, nW , nC).fill_(0)
 
@@ -48,7 +48,7 @@ def build_targets(pred_boxes,pred_conf, pred_cls, target, anchors, num_anchors, 
             # Get shape of anchor box
             anchor_shapes = torch.FloatTensor(np.concatenate((np.zeros((len(anchors), 2)), np.array(anchors)), 1))
             # Calculate iou between gt and anchor shapes
-            anch_ious = bbox_iou(gt_box, anchor_shapes)
+            anch_ious = bbox_iou(gt_box, anchor_shapes) # TODO: This should run on GPU to improve speed
             # Where the overlap is larger than threshold set mask to zero (ignore)
             conf_mask[b, anch_ious > ignore_thres, gj, gi] = 0
             # Find the best matching anchor box
@@ -75,7 +75,7 @@ def build_targets(pred_boxes,pred_conf, pred_cls, target, anchors, num_anchors, 
             tconf[b, best_n, gj, gi] = 1
 
             # Calculate iou between ground truth and best matching prediction
-            iou = bbox_iou(gt_box, pred_box, x1y1x2y2=False)
+            iou = bbox_iou(gt_box, pred_box, x1y1x2y2=False) # TODO: This should run on GPU to improve speed
             pred_label = torch.argmax(pred_cls[b, best_n, gj, gi])
             score = pred_conf[b, best_n, gj, gi]
             if iou > 0.5 and pred_label == target_label and score > 0.5:
@@ -104,7 +104,6 @@ class RegionLoss(nn.Module):
     def forward(self, x, targets):
         #x : batch_size*num_anchorsx(6+1+num_classes)*H*W    [12,75,16,32]
         #targets :   targets define in utils.py  get_target function   [12,50,7]
-
         nA = self.num_anchors     # num_anchors = 5
         nB = x.data.size(0)  # batch_size
         nH = x.data.size(2)  # nH  16
@@ -198,32 +197,11 @@ class RegionLoss(nn.Module):
             pred_conf[conf_mask_true], tconf[conf_mask_true]
         )
         if tcls[mask].size()[0] == 0:
-            # print('tcls[mask] is None')
-            # print(f"tcls: {tcls}")
-            # print(f"pred_cls: {pred_cls}")
-            # print(f"mask: {mask}")
-            # print(f"tcls[mask]: {tcls[mask]}")
-            # print(f"pred_cls[mask]: {pred_cls[mask]}")
             loss_cls = -1
             loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_Euler
         else:
             loss_cls = (1 / nB) * self.ce_loss(pred_cls[mask], torch.argmax(tcls[mask], 1))
             loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls + loss_Euler
-
-        # metrics = {
-        #     'nGT': nGT,
-        #     'recall': recall,
-        #     'precision': precision,
-        #     'nProposals': nProposals,
-        #     'nCorrect': nCorrect,
-        #     'loss_x': loss_x.data,
-        #     'loss_y': loss_y.data,
-        #     'loss_w': loss_w.data,
-        #     'loss_h': loss_h.data,
-        #     'loss_conf': loss_conf.data,
-        #     'loss_cls': loss_cls,
-        #     'loss': loss.data 
-        # }
 
         return loss
 
