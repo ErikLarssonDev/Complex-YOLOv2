@@ -1,4 +1,6 @@
 from __future__ import division
+import json
+import os
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
@@ -10,6 +12,7 @@ import matplotlib.image as mpimg
 import time
 import cv2
 from scipy import misc
+from tqdm import tqdm
 from region_loss import RegionLoss
 
 from zod import ZOD_Dataset, inverse_yolo_targets
@@ -18,6 +21,7 @@ from kitti_bev_utils import *
 import utils
 import eval_utils
 import argparse
+from codecarbon import EmissionsTracker
 
 def parse_train_configs():
     parser = argparse.ArgumentParser(description='The Implementation of Complex YOLOv2')
@@ -25,6 +29,12 @@ def parse_train_configs():
     parser.add_argument("--save_results", action="store_true", help="Save results")
     parser.add_argument("--conf_thresh", type=float, default=0.5, help="Confidence threshold")
     parser.add_argument("--nms_thresh", type=float, default=0.5, help="Non-maximum suppression threshold")
+    parser.add_argument("--experiment_name", type=str, default="default", help="Name of the experiment")
+    parser.add_argument("--model_path", type=str, default="ComplexYOLO_20e_zod_anchor.pt", help="Path to the model")
+    parser.add_argument("--data_path", type=str, default="./zod", help="Path to the data")
+    parser.add_argument("--eval_subset", type=float, default=1.0, help="Percentage of the data to evaluate")
+    parser.add_argument("--eval_num_samples", type=int, default=0, help="Number of samples to evaluate")
+    parser.add_argument("--data_split", type=str, default="test", help="Data split (train, val, trainval, test)")
 
 
     return parser.parse_args()
@@ -91,13 +101,6 @@ def get_region_boxes(x, conf_thresh, num_classes, anchors, num_anchors):
             all_boxes = np.append(all_boxes, [pred_boxes[i][0:8]], axis=0)
     return all_boxes
 
-
-def evaluate_mAP(predictions, targets, iou_thresholds=[0.1, 0.3, 0.5, 0.7, 0.9]):
-    sample_metrics = eval_utils.get_image_statistics_rotated_bbox(predictions, targets, iou_thresholds=iou_thresholds)
-    true_positives, pred_scores, pred_labels = [np.concatenate(x, 0) for x in list(zip(*sample_metrics))]
-    precision, recall, AP, f1, ap_class = eval_utils.ap_per_class(true_positives, pred_scores, pred_labels, targets[:, :, 0])
-    return precision, recall, AP, f1, ap_class
-
 def evaluate_image(predictions, targets, iou_thresholds=[0.1, 0.3, 0.5, 0.7, 0.9]):
     tp, fp, fn = eval_utils.get_image_statistics_rotated_bbox(predictions, targets, iou_thresholds=iou_thresholds)
     return tp, fp, fn # These have shape [num_classes, IoU_thresholds]
@@ -107,17 +110,81 @@ def precision_recall_f1(tp, fp, fn):
     recall = tp / (tp + fn + 1e-16)
     f1 = 2 * precision * recall / (precision + recall + 1e-16)
     return precision, recall, f1
+
+def model_eval(model, data_loader, save_results=False, experiment_name="default"):
+    # define loss function
+    region_loss = RegionLoss(num_classes=5, num_anchors=5)
+    iou_thresholds = [i/40 for i in range(1, 41)] # 40-point interpolation
+    true_positives = np.zeros((len(cnf.class_list), len(iou_thresholds)))
+    false_positives = np.zeros((len(cnf.class_list), len(iou_thresholds)))
+    false_negatives = np.zeros((len(cnf.class_list), len(iou_thresholds)))
+    total_inference_time = 0
+    gt_to_save = []
+    preds_to_save = []
+    total_loss = 0
+
+    model.cuda()
+    model.eval()
+
+    for batch_idx, (rgb_map, targets) in tqdm(enumerate(data_loader)):
+        inference_time = time.time()
+        output = model(rgb_map.float().cuda())  # torch.Size([1, 60, 16, 32])
+        total_loss += region_loss(output, targets).item() # TODO: Filter out [:, :, :7] z, h from the targets
+        total_inference_time += time.time() - inference_time
+
+        # for all images in a batch
+        for image_idx in range(output.size(0)):
+            image_targets = targets[image_idx]
+            ground_truth = copy.deepcopy(image_targets)
+            image_boxes = get_region_boxes(output[image_idx], conf_thresh=0.5, num_classes=len(cnf.class_list), anchors=utils.anchors, num_anchors=len(utils.anchors)) # Convert the boxes from the output with anchors to acutal boxes
+            pred_boxes = copy.deepcopy(image_boxes)
+
+            # Converting the pred_boxes and ground_truth to metric space
+            pred_boxes[:, 1] /= 32.0
+            pred_boxes[:, 2] /= 16.0
+            pred_boxes[:, 3] /= 32.0
+            pred_boxes[:, 4] /= 16.0
+            
+            metric_gt = inverse_yolo_targets(np.array(ground_truth)[:, :7]) # TODO: Send in :9 and ground_truth=true, retutn BEV, 3D
+            metric_pred = inverse_yolo_targets(np.array(pred_boxes)[:, :7]) # TODO: Return BEV, 3D
+            gt_to_save.append(metric_gt) # TODO: Add corresponding lists for 3D
+            preds_to_save.append(metric_pred)
     
+            tp, fp, fn = evaluate_image(metric_pred, metric_gt, iou_thresholds=iou_thresholds)
+            true_positives += tp
+            false_positives += fp
+            false_negatives += fn
+
+    precision, recall, f1 = precision_recall_f1(true_positives, false_positives, false_negatives)
+
+    results_dict = {
+        "total_loss": total_loss / len(data_loader),
+        "precision": precision.tolist(),
+        "recall": recall.tolist(),
+        "f1": f1.tolist(),
+        "true_positives": true_positives.tolist(),
+        "false_positives": false_positives.tolist(),
+        "false_negatives": false_negatives.tolist(),
+        "inference_time": total_inference_time / len(data_loader) # TODO: Add support for energy consumption
+    }
+
+    if save_results:
+        os.makedirs(f"results/{experiment_name}", exist_ok=True)
+        with open(f"results/{experiment_name}/results_dict.txt", "w") as f:
+            f.write(json.dumps(results_dict))
+        np.save(f"results/{experiment_name}/ground_truths.npy", gt_to_save)
+        np.save(f"results/{experiment_name}/predictions.npy", preds_to_save)
+        print("Results saved!")
+
+    return results_dict, gt_to_save, preds_to_save
+
 bc = cnf.boundary
 
 if __name__ == '__main__':
     args = parse_train_configs()
     batch_size=1 
-    dataset=ZOD_Dataset(root='./minzod_mmdet3d',set='train')
+    dataset=ZOD_Dataset(root=args.data_path,set=args.data_split)
     data_loader = torch.utils.data.DataLoader(dataset, batch_size, shuffle=False)
-
-    # define loss function
-    region_loss = RegionLoss(num_classes=5, num_anchors=5)
 
     # eval result
     iou_thresholds=[0.01, 0.1, 0.3, 0.5, 0.7, 0.9]
@@ -125,68 +192,76 @@ if __name__ == '__main__':
     nms_thresh = args.nms_thresh # TODO: Non-maximum suppression threshold is not done yet
     num_classes = int(5)
     num_anchors = int(5)
-    true_positives_bev = np.zeros((batch_size, len(cnf.class_list), len(iou_thresholds)))
-    false_positives_bev = np.zeros((batch_size, len(cnf.class_list), len(iou_thresholds)))
-    false_negatives_bev = np.zeros((batch_size, len(cnf.class_list), len(iou_thresholds)))
     true_positives = np.zeros((batch_size, len(cnf.class_list), len(iou_thresholds)))
     false_positives = np.zeros((batch_size, len(cnf.class_list), len(iou_thresholds)))
     false_negatives = np.zeros((batch_size, len(cnf.class_list), len(iou_thresholds)))
     total_inference_time = 0
-    gt_class_counts = np.zeros(len(cnf.class_list))
-    pred_class_counts = np.zeros(len(cnf.class_list))
-    for batch_idx, (rgb_map, targets) in enumerate(data_loader):
-        model = torch.load('ComplexYOLO_3000e.pt')
-        model.cuda()
-        model.eval()
+    total_energy_consumption = 0
+    gt_to_save = []
+    preds_to_save = []
+    if args.eval_num_samples > 0:
+        samples_to_evaluate = args.eval_num_samples
+    else:
+        samples_to_evaluate = int(len(data_loader) * args.eval_subset)
+    print(f"Samples to evaluate: {samples_to_evaluate}")
+    model = torch.load(args.model_path)
+    model.cuda()
+    model.eval()
+    tracker = EmissionsTracker()
+    for batch_idx, (rgb_map, targets) in tqdm(enumerate(data_loader)):
+        if batch_idx >= samples_to_evaluate:
+            break
+
+        tracker.start_task("Inference " + str(batch_idx))
+        rgb_map = makeBVFeature(rgb_map, cnf.DISCRETIZATION_X, cnf.DISCRETIZATION_Y, cnf.boundary) # TODO: Move this line when we start with new models that has it in the forward pass
         inference_time = time.time()
         output = model(rgb_map.float().cuda())  # torch.Size([1, 60, 16, 32])
         total_inference_time += time.time() - inference_time
-
+        tracker.stop_task()
+        total_energy_consumption += 0  # TODO: Add energy consumption
         # for all images in a batch
         for image_idx in range(output.size(0)):
-            # Printing ground truth
             image_targets = targets[image_idx]
             ground_truth = copy.deepcopy(image_targets)
-            image_targets[:, 1] *= cnf.BEV_WIDTH # x 
-            image_targets[:, 2] *= cnf.BEV_HEIGHT # y
-            image_targets[:, 3] *= cnf.BEV_WIDTH * ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / (cnf.BEV_WIDTH / cnf.BEV_HEIGHT)  # 5/3
-            image_targets[:, 4] *= cnf.BEV_HEIGHT *  (cnf.BEV_WIDTH / cnf.BEV_HEIGHT) / ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"]))  # 3/5
-            image_targets[:, 5] = torch.atan2(image_targets[:, 5], image_targets[:, 6])
-
-            img_bev = rgb_map[image_idx] * 255
-            img_bev = img_bev.permute(1, 2, 0).numpy().astype(np.uint8)
-            img_bev = cv2.resize(img_bev, (cnf.BEV_WIDTH, cnf.BEV_HEIGHT)) # TODO: Resize but maintain aspect ratio
-
-            for c, x, y, w, l, yaw in image_targets[:, 0:6].numpy(): # targets = [cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))]
-                # Draw rotated box
-                drawRotatedBox(img_bev, x, y, w, l, yaw, cnf.colors[int(c)])
-       
-            # Printing predictions
             image_boxes = get_region_boxes(output[image_idx], conf_thresh, num_classes, utils.anchors, num_anchors) # Convert the boxes from the output with anchors to acutal boxes
             pred_boxes = copy.deepcopy(image_boxes)
-            for i in range(len(image_boxes)):
-                image_boxes[i][1] *= cnf.BEV_WIDTH / 32.0 # 32 cell = 1024 pixels
-                image_boxes[i][2] *= cnf.BEV_HEIGHT / 16.0  # 16 cell = 512 pixels
-                image_boxes[i][3] *= cnf.BEV_WIDTH * ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / (cnf.BEV_WIDTH / cnf.BEV_HEIGHT)  / 32.0  # 32 cell = 1024 pixels
-                image_boxes[i][4] *= cnf.BEV_HEIGHT * (cnf.BEV_WIDTH / cnf.BEV_HEIGHT) / ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / 16.0  # 16 cell = 512 pixels
-                image_boxes[i][5] = np.arctan2(image_boxes[i][5], image_boxes[i][6])
-                image_boxes[i][6] = image_boxes[i][7]
-                drawRotatedBox(img_bev,
-                               image_boxes[i][1],
-                               image_boxes[i][2],
-                               image_boxes[i][3],
-                               image_boxes[i][4],
-                               image_boxes[i][5],
-                               cnf.colors[int(image_boxes[i][0])],
-                               1,
-                               (165, 0, 255))
-
-            img_bev = cv2.rotate(img_bev, cv2.ROTATE_180)
             if args.show_results:
+                # Printing ground truth
+                image_targets[:, 1] *= cnf.BEV_WIDTH # x 
+                image_targets[:, 2] *= cnf.BEV_HEIGHT # y
+                image_targets[:, 3] *= cnf.BEV_WIDTH * ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / (cnf.BEV_WIDTH / cnf.BEV_HEIGHT)  # 5/3
+                image_targets[:, 4] *= cnf.BEV_HEIGHT *  (cnf.BEV_WIDTH / cnf.BEV_HEIGHT) / ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"]))  # 3/5
+                image_targets[:, 5] = torch.atan2(image_targets[:, 5], image_targets[:, 6])
+
+                img_bev = rgb_map[image_idx] * 255
+                img_bev = img_bev.permute(1, 2, 0).numpy().astype(np.uint8)
+                img_bev = cv2.resize(img_bev, (cnf.BEV_WIDTH, cnf.BEV_HEIGHT)) # TODO: Resize but maintain aspect ratio
+
+                for c, x, y, w, l, yaw in image_targets[:, 0:6].numpy(): # targets = [cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))]
+                    # Draw rotated box
+                    drawRotatedBox(img_bev, x, y, w, l, yaw, cnf.colors[int(c)])
+                    
+                # Printing predictions
+                for i in range(len(image_boxes)):
+                    image_boxes[i][1] *= cnf.BEV_WIDTH / 32.0 # 32 cell = 1024 pixels
+                    image_boxes[i][2] *= cnf.BEV_HEIGHT / 16.0  # 16 cell = 512 pixels
+                    image_boxes[i][3] *= cnf.BEV_WIDTH * ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / (cnf.BEV_WIDTH / cnf.BEV_HEIGHT)  / 32.0  # 32 cell = 1024 pixels
+                    image_boxes[i][4] *= cnf.BEV_HEIGHT * (cnf.BEV_WIDTH / cnf.BEV_HEIGHT) / ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / 16.0  # 16 cell = 512 pixels
+                    image_boxes[i][5] = np.arctan2(image_boxes[i][5], image_boxes[i][6])
+                    image_boxes[i][6] = image_boxes[i][7]
+                    drawRotatedBox(img_bev,
+                                image_boxes[i][1],
+                                image_boxes[i][2],
+                                image_boxes[i][3],
+                                image_boxes[i][4],
+                                image_boxes[i][5],
+                                cnf.colors[int(image_boxes[i][0])],
+                                1,
+                                (255, 255, 255))
+
+                img_bev = cv2.rotate(img_bev, cv2.ROTATE_180)
                 cv2.imshow('single_sample', img_bev)
                 print(f"\nShowing image {batch_idx}\n")
-            
-            if args.save_results:
                 cv2.imwrite(f"results/{batch_idx}.png", img_bev)
 
             # Converting the pred_boxes and ground_truth to metric space
@@ -195,14 +270,14 @@ if __name__ == '__main__':
             pred_boxes[:, 3] /= 32.0
             pred_boxes[:, 4] /= 16.0
             
-            metric_gt = inverse_yolo_targets(np.array(ground_truth)[:, :7])
-            metric_pred = inverse_yolo_targets(np.array(pred_boxes)[:, :7])
-
-            # TODO: boxes and targets should be saved to csv file
-            pred_class_counts += np.bincount(pred_boxes[:, 0].astype(int))
-            gt_class_counts += np.bincount(ground_truth[:, 0].numpy().astype(int))
+            metric_gt = inverse_yolo_targets(np.array(ground_truth)[:, :7]) # TODO: Send in :9 and ground_truth=true, return BEV, 3D
+            
+            # TODO: Get z, h from the predicted class average
+            metric_pred = inverse_yolo_targets(np.array(pred_boxes)[:, :7]) # TODO: Return BEV, 3D
+            gt_to_save.append(metric_gt) # TODO: Add corresponding lists for 3D
+            preds_to_save.append(metric_pred)
           
-            # # Printing in metric space
+            # Printing in metric space
             # img_metric = np.zeros((250, 50, 3), dtype=np.uint8)
             # img_metric = cv2.resize(img_metric, (250, 50))
             # for c, x, y, w, l, yaw in metric_gt[:, 0:6]: # targets = [cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))]
@@ -218,15 +293,10 @@ if __name__ == '__main__':
             # cv2.imshow('img_metric', img_metric)
      
 
-            tp, fp, fn = evaluate_image(metric_pred, metric_gt, iou_thresholds=iou_thresholds) # TODO: Compare with BEV format
+            tp, fp, fn = evaluate_image(metric_pred, metric_gt, iou_thresholds=iou_thresholds)
             true_positives[image_idx] += tp
             false_positives[image_idx] += fp
             false_negatives[image_idx] += fn
-      
-            tp_bev, fp_bev, fn_bev = evaluate_image(image_boxes[:, 0:6], image_targets[:, 0:6], iou_thresholds=iou_thresholds)
-            true_positives_bev[image_idx] += tp_bev
-            false_positives_bev[image_idx] += fp_bev
-            false_negatives_bev[image_idx] += fn_bev
 
         if args.show_results:
             key = cv2.waitKey(0) & 0xFF  # Ensure the result is an 8-bit integer
@@ -238,27 +308,38 @@ if __name__ == '__main__':
                 continue  # Skip the rest of the loop and go to the next iteration
 
     precision, recall, f1 = precision_recall_f1(np.sum(true_positives, axis=0), np.sum(false_positives, axis=0), np.sum(false_negatives, axis=0))
-    precision_bev, recall_bev, f1_bev = precision_recall_f1(np.sum(true_positives_bev, axis=0), np.sum(false_positives_bev, axis=0), np.sum(false_negatives_bev, axis=0))
-    print(f"gt_class_counts: {gt_class_counts}")
     print(f"tp+fn: {true_positives[0, :, 0] + false_negatives[0, :, 0]}")
-    print(f"SUMS: gt_class_counts: {np.sum(gt_class_counts)} tp+fn: {np.sum(true_positives[0, :, 0] + false_negatives[0, :, 0])}")
-
-    print(f"pred_class_counts: {pred_class_counts}")
     print(f"tp+fp: {true_positives[0, :, 0] + false_positives[0, :, 0]}")
-
-    print(f"Upper limit recall: {pred_class_counts / gt_class_counts +1e-16}")
-
-    print(f"bev tp+fp: {true_positives_bev[0, :, 0] + false_positives_bev[0, :, 0]}")
-    print(f"bev tp+fn: {true_positives_bev[0, :, 0] + false_negatives_bev[0, :, 0]}")
 
     print(f"true_positives: {true_positives}")
     print(f"false_positives: {false_positives}")
     print(f"false_negatives: {false_negatives}")
 
-    print(f"true_positives_bev: {true_positives_bev}")
-    print(f"false_positives_bev: {false_positives_bev}")
-    print(f"false_negatives_bev: {false_negatives_bev}")
 
     print(f"Metric: precision:\n {precision} \nrecall:\n {recall} \nf1:\n {f1}")
-    print(f"BEV: precision:\n {precision_bev} \nrecall:\n {recall_bev} \nf1:\n {f1_bev}")
     print(f"Average inference time: {total_inference_time / len(data_loader)}")
+
+    emissions = tracker.stop()
+    for task_name, task in tracker._tasks.items():
+        print(f"Task: {task_name}")
+        print(f"\tEnergy : {1000 * task.emissions_data.energy_consumed} Wh")
+
+
+    results_dict = {
+        "precision": precision.tolist(),
+        "recall": recall.tolist(),
+        "f1": f1.tolist(),
+        "true_positives": true_positives.tolist(),
+        "false_positives": false_positives.tolist(),
+        "false_negatives": false_negatives.tolist(),
+        "inference_time": total_inference_time / len(data_loader),
+        "energy_consumption": total_energy_consumption / len(data_loader)
+    }
+
+    if args.save_results:
+        os.makedirs(f"results/{args.experiment_name}", exist_ok=True)
+        with open(f"results/{args.experiment_name}/results_dict.txt", "w") as f:
+            f.write(json.dumps(results_dict))
+        np.save(f"results/{args.experiment_name}/ground_truths.npy", gt_to_save)
+        np.save(f"results/{args.experiment_name}/predictions.npy", preds_to_save)
+        print("Results saved!")
