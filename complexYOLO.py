@@ -2,6 +2,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 from torch.autograd import Variable
+import config as cnf
+from kitti_bev_utils import makeBVFeature
 
 NUM_CLASSES = 5
 NUM_ANCHORS = 5
@@ -78,6 +80,7 @@ class ComplexYOLO(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self,x):
+        x = makeBVFeature(x, cnf.DISCRETIZATION_X, cnf.DISCRETIZATION_Y, cnf.boundary)
         x = self.relu(self.bn_1(self.conv_1(x)))
         x = self.pool_1(x)
         
