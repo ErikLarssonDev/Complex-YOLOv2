@@ -40,7 +40,7 @@ def makeBVFeature(PointCloud_, Discretization_X, Discretization_Y, bc):
     Width = cnf.BEV_WIDTH + 1
 
      # Discretize Feature Map 
-    PointCloud = np.copy(PointCloud_) 
+    PointCloud = np.copy(PointCloud_.squeeze(0).cpu().detach().numpy()) 
     
     offset_x = np.int_(np.floor(bc['minX'] / Discretization_X)) 
     offset_y = np.int_(np.floor(bc['minY'] / Discretization_Y)) 
@@ -80,7 +80,7 @@ def makeBVFeature(PointCloud_, Discretization_X, Discretization_Y, bc):
     RGB_Map[1, :, :] = heightMap[:cnf.BEV_HEIGHT, :cnf.BEV_WIDTH]  # g_map
     RGB_Map[0, :, :] = intensityMap[:cnf.BEV_HEIGHT, :cnf.BEV_WIDTH]  # b_map
 
-    return torch.tensor(RGB_Map)
+    return torch.tensor(RGB_Map).unsqueeze(0) # The YOLO model wants a batch dimension
 
 
 def read_labels_for_bevbox(objects):
