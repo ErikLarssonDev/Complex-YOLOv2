@@ -16,38 +16,36 @@ CLASS_NAME_TO_ID = {
     'Unclear': 4,
 }
 
-
 # Front side (of vehicle) Point Cloud boundary for BEV
-boundary = { # TODO: Fix so that we can have rectangular boundaries and not only square
+boundary = {
     "minX": -25,
     "maxX": 25,
     "minY": 0,
-    "maxY": 250,
-    "minZ": -2.73,
-    "maxZ": 1.27
+    "maxY": 245,
+    "minZ": -5,
+    "maxZ": 3
 }
-# Ratio = 5:1
-# => 5/3 times too wide
-# => 3/5 times too high 
 
-# boundary = {
-#     "minX": -25,
-#     "maxX": 25,
-#     "minY": 0,
-#     "maxY": 50,
-#     "minZ": -2.73,
-#     "maxZ": 1.27
-# }
+BEV_WIDTH = 3200 # 3200 # 4800 # Original: 1024 X [0, 40] 
+BEV_HEIGHT = 640 # 640 # 960 # Original: 512 Y [-40, 40] 
+# Cell size: 1024 / 80 = 12.8 --> 100 / 12.8 = 8 # Original: about 8cm
+# Cell size: 3200 / 250 = 12.8 --> 100 / 12.8 = 8 # Original: about 8cm
+# Cell size: 4800 / 250 = 19.2 --> 100 / 19.2 = 5.2 
 
-# TODO: Explore how to increase resolution ratio = 3:1
-BEV_WIDTH = 1024 # Original: 1024 X [0, 40] --> 6400 
-BEV_HEIGHT = 512 # Original: 512 Y [-40, 40] --> 320
-# Cell size: 3200 / (1024 x 512) = 0.006103515625 # Original: about 8cm
-# Cell size: 12500 / (1500 x 1500) = 0.005555555555555556 # Original: about 8cm
+
+CONFIG = {
+       "name": "3200x640",
+       "architecture": "Complex-YOLOv2-3200x640",
+       "dataset": './zod',
+       "epochs": 5,
+       "batch_size": 1,
+       "BEV_WIDTH": BEV_WIDTH,
+       "BEV_HEIGHT": BEV_HEIGHT,
+    }
 
 DISCRETIZATION_X = (boundary["maxX"] - boundary["minX"]) / BEV_HEIGHT 
 DISCRETIZATION_Y = (boundary["maxY"] - boundary["minY"]) / BEV_WIDTH 
 
 # TODO: Maybe add the aspect ratio factors in the config file
 
-colors = [[0, 255, 255], [0, 0, 255], [255, 0, 0], [0, 255, 0], [255, 255, 255]]
+colors = [(106, 0, 228), (119, 11, 32), (165, 42, 42), (0, 0, 192), (60, 255, 60)]
