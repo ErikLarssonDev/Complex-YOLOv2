@@ -164,7 +164,7 @@ class RegionLoss(nn.Module):
 
         nProposals = int((pred_conf > 0.5).sum().item())
         recall = float(nCorrect / nGT) if nGT else 1
-        precision = float(nCorrect / nProposals) # TODO: Why can precision be greater than 1? How can nProposals can be lower than nCorrect?
+        # precision = float(nCorrect / nProposals) # TODO: Why can precision be greater than 1? How can nProposals can be lower than nCorrect?
         
         # Handle masks
         mask = Variable(mask.type(ByteTensor))
@@ -210,20 +210,20 @@ class RegionLoss(nn.Module):
             loss_cls = (1 / nB) * self.ce_loss(pred_cls[mask], torch.argmax(tcls[mask], 1))
             loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls + loss_Euler
 
-        metrics = {
-            'nGT': nGT,
-            'recall': recall,
-            'precision': precision,
-            'nProposals': nProposals,
-            'nCorrect': nCorrect,
-            'loss_x': loss_x.data,
-            'loss_y': loss_y.data,
-            'loss_w': loss_w.data,
-            'loss_h': loss_h.data,
-            'loss_conf': loss_conf.data,
-            'loss_cls': loss_cls,
-            'loss': loss.data 
-        }
+        # metrics = {
+        #     'nGT': nGT,
+        #     'recall': recall,
+        #     'precision': precision,
+        #     'nProposals': nProposals,
+        #     'nCorrect': nCorrect,
+        #     'loss_x': loss_x.data,
+        #     'loss_y': loss_y.data,
+        #     'loss_w': loss_w.data,
+        #     'loss_h': loss_h.data,
+        #     'loss_conf': loss_conf.data,
+        #     'loss_cls': loss_cls,
+        #     'loss': loss.data 
+        # }
 
-        return loss, metrics
+        return loss
 
