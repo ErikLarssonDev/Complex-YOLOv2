@@ -97,6 +97,7 @@ def get_region_boxes(x, conf_thresh, num_classes, anchors, num_anchors):
     for i in range(pred_boxes.shape[0]):
         if pred_boxes[i][6] > conf_thresh:
             pred_boxes[i][0:8] = np.insert(pred_boxes[i], 0, np.argmax(pred_boxes[i][7:]), axis=0)[0:8]
+            pred_boxes[i][8] = np.max(pred_boxes[i][7:]) # The confidence score is the maximum value of the class scores
             all_boxes = np.append(all_boxes, [pred_boxes[i][0:8]], axis=0)
     return all_boxes
 
@@ -125,13 +126,15 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
 
     model.cuda()
     model.eval()
-    tracker = EmissionsTracker(log_level='error')
+    tracker = EmissionsTracker(log_level='error', save_to_file=False)
 
     for batch_idx, (rgb_map, targets) in tqdm(enumerate(data_loader)):
         tracker.start_task("Inference " + str(batch_idx))
         inference_time = time.time()
         rgb_map = makeBVFeature(rgb_map, cnf.DISCRETIZATION_X, cnf.DISCRETIZATION_Y, cnf.boundary) # TODO: Move this line when we start with new models that has it in the forward pass
         output = model(rgb_map.float().cuda())  # torch.Size([1, 60, 16, 32])
+        print(f"Output shape: {output.shape}")
+        print(f"Targets shape: {targets.shape}")
         total_inference_time += time.time() - inference_time
         tracker.stop_task()
         total_loss += region_loss(output, targets[:, :, :7]).item() # Filter out [:, :, :7] z, h from the targets
@@ -141,6 +144,8 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
             image_targets = targets[image_idx]
             ground_truth = copy.deepcopy(image_targets)
             image_boxes = get_region_boxes(output[image_idx], conf_thresh=0.5, num_classes=len(cnf.class_list), anchors=utils.anchors, num_anchors=len(utils.anchors)) # Convert the boxes from the output with anchors to acutal boxes
+            # TODO: Do post processing with NMS
+
             pred_boxes = copy.deepcopy(image_boxes)
 
             # If we want to visualize the bounding boxes for targets and predictions
@@ -178,19 +183,15 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
                                 1,
                                 (255, 255, 255))
 
-                    img_bev = cv2.rotate(img_bev, cv2.ROTATE_180)
-                    cv2.imshow('single_sample', img_bev)
-                    print(f"\nShowing image {batch_idx}\n")
-                    cv2.imwrite(f"results/{batch_idx}.png", img_bev)
+                img_bev = cv2.rotate(img_bev, cv2.ROTATE_180)
+                cv2.imshow('single_sample', img_bev)
+                print(f"\nShowing image {batch_idx+1}\n")
+                cv2.imwrite(f"results/{batch_idx}.png", img_bev)
 
-            key = cv2.waitKey(0) & 0xFF  # Ensure the result is an 8-bit integer
-            if key == 27:  # Check if 'Esc' key is pressed
-                cv2.destroyAllWindows() 
-                break
-            elif key == 110:
-                show_next_image = True  # Set the flag to False to avoid showing the same image again
-                continue  # Skip the rest of the loop and go to the next iteration
-
+                key = cv2.waitKey(0) & 0xFF  # Ensure the result is an 8-bit integer
+                if key == 27:  # Check if 'Esc' key is pressed
+                    cv2.destroyAllWindows()
+                    
             # Converting the pred_boxes and ground_truth to metric space
             pred_boxes[:, 1] /= 32.0
             pred_boxes[:, 2] /= 16.0
@@ -199,6 +200,7 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
             
             metric_gt = inverse_yolo_targets(np.array(ground_truth)[:, :9], ground_truth=True)
             metric_pred = inverse_yolo_targets(np.array(pred_boxes)[:, :7])
+
             gt_to_save.append(metric_gt)
             preds_to_save.append(metric_pred)
     
@@ -209,6 +211,16 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
 
     precision, recall, f1 = precision_recall_f1(true_positives, false_positives, false_negatives)
 
+    # Calculate AP, AR, AF1
+    AP = np.trapz(precision, iou_thresholds, axis=1)
+    AR = np.trapz(recall, iou_thresholds, axis=1)
+    AF1 = np.trapz(f1, iou_thresholds, axis=1)
+
+    # Calculate mAP, mAR, mF1
+    mAP  = np.mean(AP, axis=0)
+    mAR  = np.mean(AR, axis=0)
+    mAF1  = np.mean(AF1, axis=0)
+
     emissions = tracker.stop()
     for task_name, task in tracker._tasks.items():
         total_energy_consumption += task.emissions_data.energy_consumed * 1000
@@ -218,6 +230,12 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
         "precision": precision.tolist(),
         "recall": recall.tolist(),
         "f1": f1.tolist(),
+        "AP": AP.tolist(),
+        "AR": AR.tolist(),
+        "AF1": AF1.tolist(),
+        "mAP": mAP.tolist(),
+        "mAR": mAR.tolist(),
+        "mAF1": mAF1.tolist(),
         "true_positives": true_positives.tolist(),
         "false_positives": false_positives.tolist(),
         "false_negatives": false_negatives.tolist(),
@@ -248,6 +266,8 @@ if __name__ == '__main__':
     model.eval()
 
     print(f"Evaluation on {args.data_split} set\n")
+    print(f"Model: {args.model_path}\n")
+    print(f"Config: {cnf.CONFIG}\n")
     epoch_metrics, _, _ = model_eval(model, data_loader, save_results=True, experiment_name=args.experiment_name, show_results=args.show_results)
     print(f"Loss: {epoch_metrics['total_loss']}",
           f"\nPrecision: {np.mean(epoch_metrics['precision'], axis=0)[19]}",

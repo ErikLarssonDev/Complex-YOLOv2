@@ -11,7 +11,6 @@ import config as cnf
 
 bc = cnf.boundary
 
-# TODO: Rebuild this dataset but with the ZOD dataset format
 class ZOD_Dataset(torch.utils.data.Dataset):
 
     def __init__(self, root='/minzod_mmdet3d',set='train'):
@@ -35,22 +34,16 @@ class ZOD_Dataset(torch.utils.data.Dataset):
         # If annotations is empty, then pick a new image
         target = self.build_yolo_target_ZOD(target)
         if len(target) == 0:
-            print(f"\nEmpty annotations for {self.file_list[i]}")
+            # print(f"\nEmpty annotations for {self.file_list[i]}")
             new_index = np.random.randint(0, len(self.file_list))
-            print(f"Trying a new image with index {new_index} instead")
+            # print(f"Trying a new image with index {new_index} instead")
             return self.__getitem__(new_index)
-        # target = get_target(label_file,calib['Tr_velo2cam'])
-        #print(target)
-        #print(self.file_list[i])
-        
-        ################################
+
         # load point cloud data
         a = np.fromfile(lidar_file, dtype=np.float32).reshape(-1, 4)
 
         b = removePoints(a, bc)
-        # start_time = time.time()
-        # data = makeBVFeature(b, cnf.DISCRETIZATION_X, cnf.DISCRETIZATION_Y, cnf.boundary) Moved this to the model as we need to time this in the inference step
-        # print(f"Time to process 1 sample: {time.time() - start_time:.2f} seconds")
+    
         return torch.tensor(b), torch.tensor(target)
 
 

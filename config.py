@@ -34,14 +34,19 @@ BEV_HEIGHT = 512 # 640 # 640 # 960 # Original: 512 Y [-40, 40]
 
 
 CONFIG = {
-       "name": "YOLO_5e_1024x512_trainval",
-       "architecture": "Complex-YOLOv2-4800x960_trainval",
-       "dataset": './zod',
-       "epochs": 5,
-       "batch_size": 1,
-       "BEV_WIDTH": BEV_WIDTH,
-       "BEV_HEIGHT": BEV_HEIGHT,
-    }
+        "name": "YOLO_50e_1024x512_minzod_train",
+        "architecture": "Complex-YOLOv2",
+        "dataset": './minzod_mmdet3d',
+        "start_epoch": 0,
+        "epochs": 50,
+        "learning_rate": 0.001, # Adam standard  0.001
+        "scheduler": False,
+        "batch_size": 1,
+        "resume_training": False,
+        "resume_checkpoint": "",
+        "BEV_WIDTH": BEV_WIDTH,
+        "BEV_HEIGHT": BEV_HEIGHT,
+        }
 
 DISCRETIZATION_X = (boundary["maxX"] - boundary["minX"]) / BEV_HEIGHT 
 DISCRETIZATION_Y = (boundary["maxY"] - boundary["minY"]) / BEV_WIDTH 

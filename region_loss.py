@@ -160,10 +160,6 @@ class RegionLoss(nn.Module):
             nW=nW,
             ignore_thres=self.ignore_thres
         )
-
-        nProposals = int((pred_conf > 0.5).sum().item())
-        recall = float(nCorrect / nGT) if nGT else 1
-        # precision = float(nCorrect / nProposals) # TODO: Why can precision be greater than 1? How can nProposals can be lower than nCorrect?
         
         # Handle masks
         mask = Variable(mask.type(ByteTensor))
