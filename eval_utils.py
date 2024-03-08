@@ -168,7 +168,7 @@ def get_image_statistics_rotated_bbox(output, targets, iou_thresholds, num_class
     false_negatives = np.zeros((num_classes, len(iou_thresholds)))
     if len(targets) > 0:
         target_labels = np.array(targets[:, 0]).astype(np.int32)
-        target_boxes = targets[:, 1:]
+        target_boxes = targets[:, [1, 2, 4, 5, 7]]
         overlap_matrix = np.zeros((len(pred_boxes), len(target_boxes)))
 
         overlap_matrix = rotate_iou.rotate_iou_gpu_eval(np.array(pred_boxes), np.array(target_boxes))

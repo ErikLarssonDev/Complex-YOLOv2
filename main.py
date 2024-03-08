@@ -82,7 +82,7 @@ for epoch in tqdm(range(cnf.CONFIG["epochs"])):
               total_loss/len(data_loader)))
        
        print("\nEvaluating the model")
-       epoch_metrics, _, _ = model_eval(model, data_loader, save_results=False) # TODO: Remember to change this back to val_loader!
+       epoch_metrics, _, _ = model_eval(model, val_loader, save_results=False) # TODO: Remember to change this back to val_loader!
        print(f"Loss: {epoch_metrics['total_loss']}",
               f"\nAP: {epoch_metrics['AP']}",
               f"\nAR: {epoch_metrics['AR']}",
@@ -104,7 +104,7 @@ for epoch in tqdm(range(cnf.CONFIG["epochs"])):
        if cnf.CONFIG["scheduler"]:
               scheduler.step()
        
-torch.save(model, f"{cnf.CONFIG['name']}.pt")
+       torch.save(model, f"{cnf.CONFIG['name']}.pt")
 print("Evaluation on test set\n")
 epoch_metrics, _, _ = model_eval(model, test_loader, save_results=True, experiment_name=cnf.CONFIG["name"])
 print(f"Loss: {epoch_metrics['total_loss']}",

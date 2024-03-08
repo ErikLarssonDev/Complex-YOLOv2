@@ -25,6 +25,16 @@ boundary = {
     "minZ": -5,
     "maxZ": 3
 }
+# This boundary is needed for 30000e.pt model
+# boundary = {
+#     "minX": -25,
+#     "maxX": 25,
+#     "minY": 0,
+#     "maxY": 250,
+#     "minZ": -2.73,
+#     "maxZ": 1.27
+# }
+
 
 BEV_WIDTH = 1024 # 3200 # 3200 # 4800 # Original: 1024 X [0, 40] 
 BEV_HEIGHT = 512 # 640 # 640 # 960 # Original: 512 Y [-40, 40] 
@@ -34,11 +44,11 @@ BEV_HEIGHT = 512 # 640 # 640 # 960 # Original: 512 Y [-40, 40]
 
 
 CONFIG = {
-        "name": "YOLO_50e_1024x512_minzod_train",
+        "name": f"YOLO_10000e_{BEV_WIDTH}x{BEV_HEIGHT}_minzod_mmdet3d",
         "architecture": "Complex-YOLOv2",
         "dataset": './minzod_mmdet3d',
         "start_epoch": 0,
-        "epochs": 50,
+        "epochs": 10000,
         "learning_rate": 0.001, # Adam standard  0.001
         "scheduler": False,
         "batch_size": 1,
