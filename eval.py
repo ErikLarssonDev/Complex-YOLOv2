@@ -154,6 +154,8 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
         output = model(rgb_map.float().cuda())  # torch.Size([1, 60, 16, 32])
         total_inference_time += time.time() - inference_time
         tracker.stop_task()
+        nH = output.data.size(2)  # nH  16, changes if we change BEV feature map size
+        nW = output.data.size(3)  # nW  32
         total_loss += region_loss(output, targets[:, :, :7]).item() # Filter out [:, :, :7] z, h from the targets
 
         # for all images in a batch
@@ -179,16 +181,16 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
                 img_bev = img_bev.permute(1, 2, 0).numpy().astype(np.uint8)
                 img_bev = cv2.resize(img_bev, (cnf.BEV_WIDTH, cnf.BEV_HEIGHT)) # TODO: Resize but maintain aspect ratio
 
-                # for c, x, y, w, l, yaw in image_targets[:, 0:6].numpy(): # targets = [cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))]
-                #     # Draw rotated box
-                #     drawRotatedBox(img_bev, x, y, w, l, yaw, cnf.colors[int(c)])
+                for c, x, y, w, l, yaw in image_targets[:, 0:6].numpy(): # targets = [cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))]
+                    # Draw rotated box
+                    drawRotatedBox(img_bev, x, y, w, l, yaw, cnf.colors[int(c)])
                     
                 # Printing predictions
                 for i in range(len(image_boxes)):
-                    image_boxes[i][1] *= cnf.BEV_WIDTH / 32.0 # 32 cell = 1024 pixels
-                    image_boxes[i][2] *= cnf.BEV_HEIGHT / 16.0  # 16 cell = 512 pixels
-                    image_boxes[i][3] *= cnf.BEV_WIDTH * ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / (cnf.BEV_WIDTH / cnf.BEV_HEIGHT)  / 32.0  # 32 cell = 1024 pixels
-                    image_boxes[i][4] *= cnf.BEV_HEIGHT * (cnf.BEV_WIDTH / cnf.BEV_HEIGHT) / ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / 16.0  # 16 cell = 512 pixels
+                    image_boxes[i][1] *= cnf.BEV_WIDTH / nW # 32 cell = 1024 pixels
+                    image_boxes[i][2] *= cnf.BEV_HEIGHT / nH  # 16 cell = 512 pixels
+                    image_boxes[i][3] *= cnf.BEV_WIDTH * ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / (cnf.BEV_WIDTH / cnf.BEV_HEIGHT)  / nW  # 32 cell = 1024 pixels
+                    image_boxes[i][4] *= cnf.BEV_HEIGHT * (cnf.BEV_WIDTH / cnf.BEV_HEIGHT) / ((bc["maxY"]-bc["minY"]) / (bc["maxX"]-bc["minX"])) / nH  # 16 cell = 512 pixels
                     image_boxes[i][5] = np.arctan2(image_boxes[i][5], image_boxes[i][6])
                     image_boxes[i][6] = image_boxes[i][7]
                     drawRotatedBox(img_bev,
@@ -209,12 +211,12 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
                 key = cv2.waitKey(0) & 0xFF  # Ensure the result is an 8-bit integer
                 if key == 27:  # Check if 'Esc' key is pressed
                     cv2.destroyAllWindows()
-          
+
             # Converting the pred_boxes and ground_truth to metric space
-            pred_boxes[:, 1] /= 32.0
-            pred_boxes[:, 2] /= 16.0
-            pred_boxes[:, 3] /= 32.0
-            pred_boxes[:, 4] /= 16.0
+            pred_boxes[:, 1] /= nW
+            pred_boxes[:, 2] /= nH
+            pred_boxes[:, 3] /= nW
+            pred_boxes[:, 4] /= nH
            
             metric_gt = inverse_yolo_targets(np.array(ground_truth)[:, :9], ground_truth=True)
             metric_pred = inverse_yolo_targets(np.array(pred_boxes)[:, :7])

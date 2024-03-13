@@ -104,7 +104,8 @@ if __name__ == '__main__':
 
         rgb_map = makeBVFeature(rgb_map.squeeze(), cnf.DISCRETIZATION_X, cnf.DISCRETIZATION_Y, cnf.boundary)
         img_bev = rgb_map * 255
-        img_bev = img_bev.permute(1, 2, 0).numpy().astype(np.uint8)
+        print(f"img_bev.shape: {img_bev.shape}")
+        img_bev = img_bev.squeeze(0).permute(1, 2, 0).numpy().astype(np.uint8)
         img_bev = cv2.resize(img_bev, (cnf.BEV_WIDTH, cnf.BEV_HEIGHT)) # TODO: Resize but maintain aspect ratio
 
         for c, x, y, w, l, yaw in targets[:, 0:6].numpy(): # targets = [cl, y1, x1, w1, l1, math.sin(float(yaw)), math.cos(float(yaw))]

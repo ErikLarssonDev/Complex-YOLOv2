@@ -29,7 +29,10 @@ val_loader = data.DataLoader(val_dataset, cnf.CONFIG["batch_size"], shuffle=Fals
 test_loader = data.DataLoader(test_dataset, cnf.CONFIG["batch_size"], shuffle=False)
 
 model = ComplexYOLO()
-# model = torch.load('ComplexYOLO_1000e.pt')
+if cnf.CONFIG["resume_training"]:
+       model = torch.load(cnf.CONFIG["resume_checkpoint"])
+       print(f"Resuming training from {cnf.CONFIG['resume_checkpoint']}")
+
 model.cuda()
 # define optimizer
 optimizer = optim.Adam(model.parameters(), lr=cnf.CONFIG["learning_rate"])
@@ -50,6 +53,8 @@ wandb.init(
 )
 
 for epoch in tqdm(range(cnf.CONFIG["epochs"])):
+       if cnf.CONFIG["resume_training"]:
+              epoch += cnf.CONFIG["start_epoch"]
        total_loss = 0
        total_metrics = {
         "total_loss": 0,
@@ -82,7 +87,7 @@ for epoch in tqdm(range(cnf.CONFIG["epochs"])):
               total_loss/len(data_loader)))
        
        print("\nEvaluating the model")
-       epoch_metrics, _, _ = model_eval(model, val_loader, save_results=False) # TODO: Remember to change this back to val_loader!
+       epoch_metrics, _, _ = model_eval(model, val_loader, save_results=False)
        print(f"Loss: {epoch_metrics['total_loss']}",
               f"\nAP: {epoch_metrics['AP']}",
               f"\nAR: {epoch_metrics['AR']}",
@@ -92,19 +97,30 @@ for epoch in tqdm(range(cnf.CONFIG["epochs"])):
               f"\nEnergy: {epoch_metrics['energy_consumption']}\n")
 
        wandb.log({"train_loss": total_loss/len(data_loader),
-                  "val_loss": epoch_metrics['total_loss'],
-                  "val_mAP": epoch_metrics['mAP'],
-                  "val_mAR": epoch_metrics['mAR'],
-                  "val_tp_05": np.sum(epoch_metrics['true_positives'], axis=0)[19],
-                  "val_fp_05": np.sum(epoch_metrics['false_positives'], axis=0)[19],
-                  "val_fn_05": np.sum(epoch_metrics['false_negatives'], axis=0)[19],
-                  "lr": optimizer.param_groups[0]['lr'],
+                     "val_loss": epoch_metrics['total_loss'],
+                     "val_mAP": epoch_metrics['mAP'],
+                     "val_mAR": epoch_metrics['mAR'],
+                     "val_AP_Vehicle": epoch_metrics['AP'][0],
+                     "val_AP_VulnerableVehicle": epoch_metrics['AP'][1],
+                     "val_AP_Pedestrian": epoch_metrics['AP'][2],
+                     "val_AP_Animal": epoch_metrics['AP'][3],
+                     "val_AP_StaticObject": epoch_metrics['AP'][4],
+                     "val_AR_Vehicle": epoch_metrics['AR'][0],
+                     "val_AR_VulnerableVehicle": epoch_metrics['AR'][1],
+                     "val_AR_Pedestrian": epoch_metrics['AR'][2],
+                     "val_AR_Animal": epoch_metrics['AR'][3],
+                     "val_AR_StaticObject": epoch_metrics['AR'][4],
+                     "val_tp_05": np.sum(epoch_metrics['true_positives'], axis=0)[19],
+                     "val_fp_05": np.sum(epoch_metrics['false_positives'], axis=0)[19],
+                     "val_fn_05": np.sum(epoch_metrics['false_negatives'], axis=0)[19],
+                     "lr": optimizer.param_groups[0]['lr'],
                   })
   
        if cnf.CONFIG["scheduler"]:
               scheduler.step()
-       
-       torch.save(model, f"{cnf.CONFIG['name']}.pt")
+
+       torch.save(model, f"{cnf.CONFIG['name']}_{epoch+1}e.pt")       
+torch.save(model, f"{cnf.CONFIG['name']}.pt")
 print("Evaluation on test set\n")
 epoch_metrics, _, _ = model_eval(model, test_loader, save_results=True, experiment_name=cnf.CONFIG["name"])
 print(f"Loss: {epoch_metrics['total_loss']}",

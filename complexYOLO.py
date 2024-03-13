@@ -80,7 +80,6 @@ class ComplexYOLO(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self,x):
-        # x = makeBVFeature(x, cnf.DISCRETIZATION_X, cnf.DISCRETIZATION_Y, cnf.boundary) # TODO: Add this line to the forward pass when we train new models 
         x = self.relu(self.bn_1(self.conv_1(x)))
         x = self.pool_1(x)
         
@@ -114,6 +113,6 @@ class ComplexYOLO(nn.Module):
         x = torch.cat((reorg_result,x),1)
         x = self.relu(self.bn_17(self.conv_17(x)))
         x = self.conv_18(x)
-
+        
         return x # b, 60, 16, 32
 
