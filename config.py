@@ -46,9 +46,9 @@ BEV_HEIGHT = 640 # 640 # 640 # 960 # Original: 512 Y [-40, 40]
 NUM_EPOCHS = 20
 
 CONFIG = {
-        "name": f"YOLO_{NUM_EPOCHS}e_{BEV_WIDTH}x{BEV_HEIGHT}_train_1",
+        "name": f"YOLO_{NUM_EPOCHS}e_{BEV_WIDTH}x{BEV_HEIGHT}_train_1_minizod",
         "architecture": "Complex-YOLOv2-3200x640",
-        "dataset": './zod',
+        "dataset": './minizod',
         "start_epoch": 0,
         "epochs": NUM_EPOCHS,
         "learning_rate": 0.001, # Adam standard  0.001

@@ -60,7 +60,7 @@ docker run -it   --gpus 'all'   -v "${PWD}:/workspace"    -v "/media/storage:/wo
 ```
 or
 ```shell
-docker run -it   --gpus 'all'   -v "${PWD}:/workspace"   -v "/media/dataSsd/KITTI:/workspace/KITTI"   -v "/home/student/minzod_mmdet3d:/workspace/minzod_mmdet3d" -v "/media/dataSsd/zod:/workspace/zod"   --name "yolov2-container-3" --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" --shm-size=1gb yolov2-image
+docker run -it   --gpus 'all'   -v "${PWD}:/workspace"   -v "/media/dataSsd/KITTI:/workspace/KITTI"   -v"/media/dataSsd/zod_mmdet3d:/workspace/bigzod" -v "/home/student/minizod_mmdet3d:/workspace/minizod"   --name "yolov2-container-4" --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" --shm-size=1gb yolov2-image
 ```
 
 it might be important to add "X11Forwarding yes" to your ssh_config (found in etc/)

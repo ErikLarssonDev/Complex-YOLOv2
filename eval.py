@@ -23,6 +23,7 @@ import utils
 import eval_utils
 import argparse
 from codecarbon import EmissionsTracker
+import wandb
 
 def parse_train_configs():
     parser = argparse.ArgumentParser(description='The Implementation of Complex YOLOv2')
@@ -32,11 +33,10 @@ def parse_train_configs():
     parser.add_argument("--nms_thresh", type=float, default=0.5, help="Non-maximum suppression threshold")
     parser.add_argument("--experiment_name", type=str, default="default", help="Name of the experiment")
     parser.add_argument("--model_path", type=str, default="", help="Path to the model")
-    parser.add_argument("--data_path", type=str, default="./zod", help="Path to the data")
+    parser.add_argument("--data_path", type=str, default="./bigzod", help="Path to the data")
     parser.add_argument("--eval_subset", type=float, default=1.0, help="Percentage of the data to evaluate")
     parser.add_argument("--eval_num_samples", type=int, default=0, help="Number of samples to evaluate")
     parser.add_argument("--data_split", type=str, default="test", help="Data split (train, val, trainval, test)")
-
 
     return parser.parse_args()
 
@@ -137,8 +137,8 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
     true_positives = np.zeros((len(cnf.class_list), len(iou_thresholds)))
     false_positives = np.zeros((len(cnf.class_list), len(iou_thresholds)))
     false_negatives = np.zeros((len(cnf.class_list), len(iou_thresholds)))
-    total_inference_time = 0
-    total_energy_consumption = 0
+    total_inference_time = []
+    total_energy_consumption = []
     gt_to_save = []
     preds_to_save = []
     total_loss = 0
@@ -148,11 +148,12 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
     tracker = EmissionsTracker(log_level='error', save_to_file=False)
 
     for batch_idx, (rgb_map, targets) in tqdm(enumerate(data_loader)):
+        current_inference_time = 0
         tracker.start_task("Inference " + str(batch_idx))
         inference_time = time.time()
         rgb_map = makeBVFeature(rgb_map, cnf.DISCRETIZATION_X, cnf.DISCRETIZATION_Y, cnf.boundary) # TODO: Move this line when we start with new models that has it in the forward pass
         output = model(rgb_map.float().cuda())  # torch.Size([1, 60, 16, 32])
-        total_inference_time += time.time() - inference_time
+        current_inference_time += time.time() - inference_time
         tracker.stop_task()
         nH = output.data.size(2)  # nH  16, changes if we change BEV feature map size
         nW = output.data.size(3)  # nW  32
@@ -162,10 +163,21 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
         for image_idx in range(output.size(0)):
             image_targets = targets[image_idx]
             ground_truth = copy.deepcopy(image_targets)
+            tracker.start_task("Inference " + str(batch_idx))
             inference_time = time.time() # This also counts as a part of the inference step 
             image_boxes = get_region_boxes(output[image_idx], conf_thresh=0.5, num_classes=len(cnf.class_list), anchors=utils.anchors, num_anchors=len(utils.anchors)) # Convert the boxes from the output with anchors to acutal boxes
             image_boxes = nms(image_boxes)
-            total_inference_time += time.time() - inference_time
+            current_inference_time += time.time() - inference_time
+            tracker.stop_task()
+            total_inference_time.append(current_inference_time)
+
+            for task_name, task in tracker._tasks.items():
+                total_energy_consumption.append(task.emissions_data.energy_consumed * 1000)
+
+            wandb.log({"Inference_time": np.mean(total_inference_time),
+                        "Inference_time_std": np.std(total_inference_time),
+                        "Energy_consumption": np.mean(total_energy_consumption),
+                        "Energy_consumption_std": np.std(total_energy_consumption)})
             pred_boxes = copy.deepcopy(image_boxes)
 
             # If we want to visualize the bounding boxes for targets and predictions
@@ -239,10 +251,6 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
     mAR  = np.mean(AR, axis=0)
     mAF1  = np.mean(AF1, axis=0)
 
-    emissions = tracker.stop()
-    for task_name, task in tracker._tasks.items():
-        total_energy_consumption += task.emissions_data.energy_consumed * 1000
-
     results_dict = {
         "total_loss": total_loss / len(data_loader),
         "precision": precision.tolist(),
@@ -257,8 +265,10 @@ def model_eval(model, data_loader, save_results=False, experiment_name="default"
         "true_positives": true_positives.tolist(),
         "false_positives": false_positives.tolist(),
         "false_negatives": false_negatives.tolist(),
-        "inference_time": total_inference_time / len(data_loader),
-        "energy_consumption": total_energy_consumption / len(data_loader)
+        "inference_time": np.mean(total_inference_time),
+        "inference_time_std": np.std(total_inference_time),
+        "energy_consumption": np.mean(total_energy_consumption),
+        "energy_consumption_std": np.std(total_energy_consumption)
     }
 
     if save_results:
@@ -286,6 +296,7 @@ if __name__ == '__main__':
     print(f"Evaluation on {args.data_split} set\n")
     print(f"Model: {args.model_path}\n")
     print(f"Config: {cnf.CONFIG}\n")
+    wandb.init(project="exjobb", name=f"Benchmark {cnf.CONFIG['name']}", config=cnf.CONFIG)
     epoch_metrics, _, _ = model_eval(model, data_loader, save_results=True, experiment_name=args.experiment_name, show_results=args.show_results)
     print(f"Loss: {epoch_metrics['total_loss']}",
           f"\nPrecision: {np.mean(epoch_metrics['precision'], axis=0)[19]}",
