@@ -29,7 +29,7 @@ llvmlite==0.36.0
 Markdown==3.5.2
 MarkupSafe==2.1.5
 matplotlib==3.7.5
-mayavi==4.8.1
+# mayavi==4.8.1
 numba==0.53.0
 numpy==1.22.0
 oauthlib==3.2.2
